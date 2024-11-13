@@ -93,7 +93,7 @@ bool hudEnabled = false;
 GLuint cubeVBOs[2], pyramidVBOs[2], sphere3DVBOs[2];
 
 //number of segments for the sphere (higher is better) but may bug out 20 is best and smooth
-const int segments = 10;
+const int segments = 8;
 
 //particle system
 
@@ -119,9 +119,9 @@ float calculateSizeForDepth(float depthFactor) {
 const float rightBoundary = 300.0f;   // Where particles spawn
 const float leftBoundary = -300.0f;   // Where particles get recycled
 const float verticalRange = 300.0f;    // Height range for particles
-const float depthRange = 100.0f;       // Depth range for particles
+const float depthRange = 50.0f;       // Depth range for particles when lower depth fps dips
 //const float particleSize = 0.5f;      // Size of the particles
-const int maxParticles = 300; // Max particles in the system
+const int maxParticles = 1000; // Max particles in the system
 //const float gravity = -9.81f; // Gravity constant (negative to pull downward) good for rain particle system for later
 const float pi = M_PI;  // Using the irrational value of pi for randomness
 float deltaT = 0.016f; // Time step (assuming 60 FPS)
@@ -141,7 +141,7 @@ struct Particle {
 // Spawn area control
 struct SpawnArea {
     float centerX = 0.0f;    // Center X position of spawn area
-    float centerY = 20.0f;    // Center Y position of spawn area
+    float centerY = 5.0f;    // Center Y position of spawn area 20 default
     float centerZ = 0.0f;    // Center Z position of spawn area
     float rangeX = 300.0f;     // Spawn range in X direction
     float rangeY = 30.0f;     // Spawn range in Y direction
@@ -587,6 +587,7 @@ void renderSphere3D(float radius, int segments, float angle, float xPos, float y
     glEnableClientState(GL_COLOR_ARRAY);
 
     // Bind VBOs and set up pointers
+    //glGenBuffers(3, sphere3DVBOs);
     glBindBuffer(GL_ARRAY_BUFFER, sphere3DVBOs[0]);
     glVertexPointer(3, GL_FLOAT, 0, 0);
     glBindBuffer(GL_ARRAY_BUFFER, sphere3DVBOs[1]);
@@ -973,7 +974,7 @@ void renderCubeMap() {
     float y = 16.0f;
     float z = 0.0f;
 
-    float size = 1024.0f; //1024 best for skybox
+    float size = 200.0f; //1024 best for skybox
     int gridDivisions = 36;
 
     glPushMatrix();
@@ -1018,17 +1019,17 @@ void reshape(GLsizei width, GLsizei height) {
 
     // Adjusted perspective parameters for better cube visualization
     // Increased FOV to 65 for better cube viewing
-    // Far plane increased to 5000 to see cubes from greater distances
+    // Far plane increased to 10000 units (it renders this nth units)(frustrum culling) to see cubes from greater distances 
     gluPerspective(60.0f, aspect, 0.5f, 10000.0f);
 
     // Enable necessary rendering features
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL); // Less than or equal depth comparison for better depth precision
 
-    // Enable back face culling for better cube rendering
-    // glEnable(GL_CULL_FACE);
-    // glCullFace(GL_BACK);
-    // glCullFace(GL_FRONT);
+    //Enable back face culling for better cube rendering (frustrum culling)
+    //glEnable(GL_CULL_FACE);
+    //glCullFace(GL_BACK);
+    //glCullFace(GL_FRONT);
 
     // Enable line smoothing for better grid lines
     glEnable(GL_LINE_SMOOTH);
@@ -1043,8 +1044,8 @@ void reshape(GLsizei width, GLsizei height) {
     glEnable(GL_FOG);
     glFogi(GL_FOG_MODE, GL_LINEAR);
     glFogfv(GL_FOG_COLOR, fogColor);
-    glFogf(GL_FOG_START, 35.0f);     // Start fog after 2000 units
-    glFogf(GL_FOG_END, 100.0f);       // Full fog by 4500 units
+    glFogf(GL_FOG_START, 3500.0f);     // Start fog after 2000 units 35 best nearest
+    glFogf(GL_FOG_END, 5000.0f);       // Full fog by 4500 units 50 or100 for farthest
     glHint(GL_FOG_HINT, GL_NICEST);
 
     glMatrixMode(GL_MODELVIEW);
