@@ -5,9 +5,6 @@
 //#include "TextureLoader.h"
 
 #include <GL/glew.h>  // Added for VBO support
-#include <GL/glu.h>
-#include <GL/gl.h>
-
 #include <GL/glut.h>
 #include <GL/freeglut_ext.h>
 #include <math.h>
@@ -17,6 +14,7 @@
 #include <vector>
 #include <algorithm>
 
+#include <glm/glm.hpp>
 using namespace std;
 
 // Function prototypes
@@ -93,35 +91,34 @@ bool hudEnabled = false;
 GLuint cubeVBOs[2], pyramidVBOs[2], sphere3DVBOs[2];
 
 //number of segments for the sphere (higher is better) but may bug out 20 is best and smooth
-const int segments = 8;
+const int segments = 6;
 
 //particle system
-
 // Random function helper with more granularity
 float randomFloat(float min, float max) {
     return min + static_cast<float>(rand()) / (static_cast<float>(RAND_MAX / (max - min)));
 }
 
 float calculateSpeedForDepth(float depthFactor) {
-    const float frontLayerSpeed = 25.0f; // Speed of the front layer
-    const float backLayerSpeed = 1.0f; // Speed of the back layer
+    const float frontLayerSpeed = 15.0f; // Speed of the front layer
+    const float backLayerSpeed = 15.0f; // Speed of the back layer
     return backLayerSpeed + (frontLayerSpeed - backLayerSpeed) * depthFactor;
 }
 
 float calculateSizeForDepth(float depthFactor) {
-    const float minSize = 0.1f; // Minimum size of the particles
-    const float maxSize = 0.5f; // Maximum size of the particles
+    const float minSize = 1.0f; // Minimum size of the particles
+    const float maxSize = 1.0f; // Maximum size of the particles
     return minSize + (maxSize - minSize) * depthFactor;
 }
 
 
 // Added spawn boundaries for the desert storm effect
-const float rightBoundary = 300.0f;   // Where particles spawn
-const float leftBoundary = -300.0f;   // Where particles get recycled
-const float verticalRange = 300.0f;    // Height range for particles
-const float depthRange = 50.0f;       // Depth range for particles when lower depth fps dips
+const float rightBoundary = 10.0f;   // Where particles spawn 300
+const float leftBoundary = 10.0f;   // Where particles get recycled -300
+const float verticalRange = 10.0f;    // Height range for particles 300
+const float depthRange = 50.0f;       // Depth range for particles when lower depth fps dips 50
 //const float particleSize = 0.5f;      // Size of the particles
-const int maxParticles = 1000; // Max particles in the system
+const int maxParticles = 500; // Max particles in the system
 //const float gravity = -9.81f; // Gravity constant (negative to pull downward) good for rain particle system for later
 const float pi = M_PI;  // Using the irrational value of pi for randomness
 float deltaT = 0.016f; // Time step (assuming 60 FPS)
@@ -140,17 +137,16 @@ struct Particle {
 
 // Spawn area control
 struct SpawnArea {
-    float centerX = 0.0f;    // Center X position of spawn area
-    float centerY = 5.0f;    // Center Y position of spawn area 20 default
+    float centerX = 300.0f;    // Center X position of spawn area
+    float centerY = 35.0f;    // Center Y position of spawn area 20 default
     float centerZ = 0.0f;    // Center Z position of spawn area
-    float rangeX = 300.0f;     // Spawn range in X direction
-    float rangeY = 30.0f;     // Spawn range in Y direction
-    float rangeZ = 300.0f;     // Spawn range in Z direction
+    float rangeX = 250.0f;     // Spawn range in X direction 300
+    float rangeY = 10.0f;     // Spawn range in Y direction 100
+    float rangeZ = 500.0f;     // Spawn range in Z direction 300
 };
 
 // Default spawn area
 SpawnArea spawnArea;
-
 
 vector<Particle> particles;
 
@@ -212,7 +208,7 @@ float pyramidColors[] = {
     // Left face (red, blue, green)
     1.0f, 0.0f, 0.0f,  0.0f, 0.0f, 1.0f,  0.0f, 1.0f, 0.0f,
     // Bottom face (raindbow)
-    0.0f, 1.0f, 1.0f,  1.0f, 0.0f, 1.0f,  1.0f, 1.0f, 0.0f,
+    1.0f, 0.0f, 0.0f,  0.0f, 1.0f, 0.0f,  0.0f, 0.0f, 1.0f, 0.5f, 0.5f, 0.5f
 };
 
 
@@ -309,17 +305,17 @@ void sphere3dVBO_one() {
             // Color pattern for beach ball
             if (lon % 3 == 0) {  // Alternate colors
                 sphereColors[index * 3] = 1.0f;  // Red component
-                sphereColors[index * 3 + 1] = 1.0f;  // Green component
-                sphereColors[index * 3 + 2] = 1.0f;  // Blue component
+                sphereColors[index * 3 + 1] = 0.0f;  // Green component
+                sphereColors[index * 3 + 2] = 0.0f;  // Blue component
             }
             else if (lon % 3 == 1) {
-                sphereColors[index * 3] = 1.0f;  // Red component
+                sphereColors[index * 3] = 0.0f;  // Red component
                 sphereColors[index * 3 + 1] = 1.0f;  // Green component (Yellow)
-                sphereColors[index * 3 + 2] = 1.0f;  // Blue component
+                sphereColors[index * 3 + 2] = 0.0f;  // Blue component
             }
             else {
-                sphereColors[index * 3] = 1.0f;  // Red component
-                sphereColors[index * 3 + 1] = 1.0f;  // Green component
+                sphereColors[index * 3] = 0.0f;  // Red component
+                sphereColors[index * 3 + 1] = 0.0f;  // Green component
                 sphereColors[index * 3 + 2] = 1.0f;  // Blue component
             }
             ++index;
@@ -687,7 +683,7 @@ void renderAnotherSphere3D(float radius, int segments, float angle, float xPos, 
     glPopMatrix();
 }
 
-// Set spawn area dimensions
+//Set spawn area dimensions original
 void setSpawnArea(
     float centerX,
     float centerY,
@@ -745,8 +741,8 @@ void initializeParticles() {
             newParticle.position[2] = randomFloat(-depthRange, depthRange);
 
             newParticle.velocity[0] = randomFloat(-15.0f, -10.0f);
-            newParticle.velocity[1] = randomFloat(-2.0f, 2.0f);
-            newParticle.velocity[2] = randomFloat(-1.0f, 1.0f);
+            newParticle.velocity[1] = randomFloat(-15.0f, -10.0f);
+            newParticle.velocity[2] = randomFloat(-15.0f, -10.0f);
 
             newParticle.size = randomFloat(0.5f, 2.0f);
             newParticle.isActive = true;
@@ -755,6 +751,7 @@ void initializeParticles() {
         }
     }
 }
+
 
 void updateParticles() {
     float respawnX = spawnArea.centerX;
@@ -812,14 +809,7 @@ void renderParticles() {
 
     for (int i = 0; i < particles.size(); ++i) {
         if (particles[i].isActive) {
-            renderSphere3D(
-                particles[i].size,
-                segments,
-                1.0f,
-                particles[i].position[0],
-                particles[i].position[1],
-                particles[i].position[2]
-            );
+            renderSphere3D(particles[i].size, segments, 1.0f, particles[i].position[0], particles[i].position[1], particles[i].position[2]);
         }
     }
 }
@@ -829,11 +819,9 @@ void update() {
     if (particles.size() < maxParticles) {
         spawnParticle();
     }
-
     updateParticles();
     renderParticles();
 }
-
 
 // Function to render a cube with grid lines on each face
 void  renderCubeWithGrid(float size, int gridDivisions = 4) {
@@ -974,7 +962,7 @@ void renderCubeMap() {
     float y = 16.0f;
     float z = 0.0f;
 
-    float size = 200.0f; //1024 best for skybox
+    float size = 1024.0f; //1024 best for skybox 200 for experimental
     int gridDivisions = 36;
 
     glPushMatrix();
@@ -1006,6 +994,7 @@ void timer(int value) {
     glutTimerFunc(refreshMills, timer, 0);
 }
 
+//perspective projection
 void reshape(GLsizei width, GLsizei height) {
     // Prevent division by zero
     if (height == 0) height = 1;
@@ -1044,7 +1033,7 @@ void reshape(GLsizei width, GLsizei height) {
     glEnable(GL_FOG);
     glFogi(GL_FOG_MODE, GL_LINEAR);
     glFogfv(GL_FOG_COLOR, fogColor);
-    glFogf(GL_FOG_START, 3500.0f);     // Start fog after 2000 units 35 best nearest
+    glFogf(GL_FOG_START, 3005.0f);     // Start fog after 2000 units 35 best nearest
     glFogf(GL_FOG_END, 5000.0f);       // Full fog by 4500 units 50 or100 for farthest
     glHint(GL_FOG_HINT, GL_NICEST);
 
