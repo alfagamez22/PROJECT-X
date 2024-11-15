@@ -1,8 +1,7 @@
 #define GLEW_STATIC
 #define STB_IMAGE_IMPLEMENTATION
 
-#include "stb_image.h"
-//#include "TextureLoader.h"
+#include "stb/stb_image.h"
 
 #include <GL/glew.h>  // Added for VBO support
 #include <GL/glut.h>
@@ -14,7 +13,11 @@
 #include <vector>
 #include <algorithm>
 
-#include <glm/glm.hpp>
+// #include "FunctionPrototypes.h"
+// #include "Camera.h"
+// #include "Movement.h"
+
+///#include <glm/glm.hpp>
 using namespace std;
 
 // Function prototypes
@@ -34,7 +37,6 @@ void renderSphere3D(float radius, int segments, float angle, float xPos, float y
 void renderAnotherSphere3D(float radius, int segments, float angle, float xPos, float yPos, float zPos);
 void renderCubeMap();
 void updateParticles();
-//void checkAnddespawnParticles();
 void renderParticles();
 void displayCoordinates(float coordX, float coordY, float coordZ);
 void renderHUD();
@@ -44,9 +46,11 @@ void initVBOs(); // Initialize VBOs
 void cleanupVBO(); // Cleanup VBOs
 
 /* Global variables */
+
 float anglePyramid = 0.0f;
 float angleCube = 0.0f;
 float angleCircle = 0.0f;  // Rotation angle for the circle
+
 int refreshMills = 5; // Refresh interval in milliseconds the lower the better maximum 5 minimum 25 (15 best) to avoid visual bugs
 
 // Camera position and orientation starting
@@ -90,41 +94,36 @@ bool hudEnabled = false;
 //Initialize VBOs
 GLuint cubeVBOs[2], pyramidVBOs[2], sphere3DVBOs[2];
 
-//number of segments for the sphere (higher is better) but may bug out 20 is best and smooth
-const int segments = 6;
+//number of segments for the sphere (higher is laggier) but may bug out 20 is best and smooth circle
+const int segments = 10;
 
 //particle system
 // Random function helper with more granularity
 float randomFloat(float min, float max) {
     return min + static_cast<float>(rand()) / (static_cast<float>(RAND_MAX / (max - min)));
 }
-
 float calculateSpeedForDepth(float depthFactor) {
     const float frontLayerSpeed = 15.0f; // Speed of the front layer
     const float backLayerSpeed = 15.0f; // Speed of the back layer
     return backLayerSpeed + (frontLayerSpeed - backLayerSpeed) * depthFactor;
 }
-
 float calculateSizeForDepth(float depthFactor) {
-    const float minSize = 1.0f; // Minimum size of the particles
-    const float maxSize = 1.0f; // Maximum size of the particles
+    const float minSize = 5.0f; // Minimum size of the particles
+    const float maxSize = 5.0f; // Maximum size of the particles
     return minSize + (maxSize - minSize) * depthFactor;
 }
-
-
 // Added spawn boundaries for the desert storm effect
 const float rightBoundary = 10.0f;   // Where particles spawn 300
 const float leftBoundary = 10.0f;   // Where particles get recycled -300
 const float verticalRange = 10.0f;    // Height range for particles 300
 const float depthRange = 50.0f;       // Depth range for particles when lower depth fps dips 50
 //const float particleSize = 0.5f;      // Size of the particles
-const int maxParticles = 500; // Max particles in the system
+const int maxParticles = 300; // Max particles in the system
 //const float gravity = -9.81f; // Gravity constant (negative to pull downward) good for rain particle system for later
 const float pi = M_PI;  // Using the irrational value of pi for randomness
 float deltaT = 0.016f; // Time step (assuming 60 FPS)
-
 //speed of the particles multiplier
-float speedMultiplier = 5.01f;  // Adjust this to control particle speed (1.0 default speed kinda fast but good for desert scene)
+float speedMultiplier = 1.01f;  // Adjust this to control particle speed (1.0 default speed kinda fast but good for desert scene)
 
 // Particle struct and list to store particles
 struct Particle {
@@ -144,7 +143,6 @@ struct SpawnArea {
     float rangeY = 10.0f;     // Spawn range in Y direction 100
     float rangeZ = 500.0f;     // Spawn range in Z direction 300
 };
-
 // Default spawn area
 SpawnArea spawnArea;
 
@@ -236,6 +234,9 @@ int main(int argc, char** argv) {
         fprintf(stderr, "GLEW initialization failed: %s\n", glewGetErrorString(err));
         return 1;
     }
+    else {
+        fprintf(stdout, "GLEW initialized successfully\n");
+    }
 
     initVBOs();
 
@@ -243,7 +244,6 @@ int main(int argc, char** argv) {
     glutMainLoop();
     return 0;
 }
-
 
 void initGL() {
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -331,13 +331,18 @@ void sphere3dVBO_one() {
 }
 
 void initVBOs() {
-
     cubeVBO();
     pyramidVBO();
     sphere3dVBO_one();
 
     // Unbind buffer
     glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
+void cleanupVBO() {
+    glDeleteBuffers(2, cubeVBOs);
+    glDeleteBuffers(2, pyramidVBOs);
+    glDeleteBuffers(2, sphere3DVBOs);
 }
 
 void updateCameraDirection() {
@@ -526,7 +531,6 @@ void renderCube() {
     // Bind vertex VBO
     glBindBuffer(GL_ARRAY_BUFFER, cubeVBOs[0]);
     glVertexPointer(3, GL_FLOAT, 0, nullptr);
-
     // Bind color VBO
     glBindBuffer(GL_ARRAY_BUFFER, cubeVBOs[1]);
     glColorPointer(3, GL_FLOAT, 0, nullptr);
@@ -607,7 +611,11 @@ void renderSphere3D(float radius, int segments, float angle, float xPos, float y
     glDisableClientState(GL_COLOR_ARRAY);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-    glPopMatrix();
+    // Restore the original state
+    glPopAttrib();  // Restore the original state
+
+    glPushMatrix(); // Save the modelview matrix
+    glPopMatrix(); // Restore the modelview matrix
 }
 
 void renderAnotherSphere3D(float radius, int segments, float angle, float xPos, float yPos, float zPos) {
@@ -683,6 +691,7 @@ void renderAnotherSphere3D(float radius, int segments, float angle, float xPos, 
     glPopMatrix();
 }
 
+//particle system
 //Set spawn area dimensions original
 void setSpawnArea(
     float centerX,
@@ -751,7 +760,6 @@ void initializeParticles() {
         }
     }
 }
-
 
 void updateParticles() {
     float respawnX = spawnArea.centerX;
@@ -868,13 +876,17 @@ void  renderCubeWithGrid(float size, int gridDivisions = 4) {
     glVertex3f(halfSize, -halfSize, halfSize);
     glVertex3f(-halfSize, -halfSize, halfSize);
 
+    // Define the four corners of the floor (planar square)
+    glVertex3f(-halfSize, 0.0f, -halfSize);
+    glVertex3f(halfSize, 0.0f, -halfSize);
+    glVertex3f(halfSize, 0.0f, halfSize);
+    glVertex3f(-halfSize, 0.0f, halfSize);
+
     glEnd();
 
     // Overlay grid lines on each face
-    glColor3f(0.0f, 0.0f, 0.0f);  // Set grid color to black
-
     glBegin(GL_LINES);
-
+    glColor3f(0.0f, 0.0f, 0.0f);  // Set grid color to black
     // Front face grid
     for (float i = -halfSize; i <= halfSize; i += step) {
         glVertex3f(i, -halfSize, halfSize);
@@ -925,21 +937,21 @@ void  renderCubeWithGrid(float size, int gridDivisions = 4) {
 
     glEnd();
 
-    // Add the floor (planar square) at y = 0
-    glBegin(GL_QUADS);
-    glColor3f(0.8f, 0.8f, 0.8f);  // Light gray color for the floor
+    // // Add the floor (planar square) at y = 0
+    // glBegin(GL_QUADS);
+    // glColor3f(0.8f, 0.8f, 0.8f);  // Light gray color for the floor
 
-    // Define the four corners of the floor (planar square)
-    glVertex3f(-halfSize, 0.0f, -halfSize);
-    glVertex3f(halfSize, 0.0f, -halfSize);
-    glVertex3f(halfSize, 0.0f, halfSize);
-    glVertex3f(-halfSize, 0.0f, halfSize);
+    // // Define the four corners of the floor (planar square)
+    // glVertex3f(-halfSize, 0.0f, -halfSize);
+    // glVertex3f(halfSize, 0.0f, -halfSize);
+    // glVertex3f(halfSize, 0.0f, halfSize);
+    // glVertex3f(-halfSize, 0.0f, halfSize);
 
-    glEnd();
+    // glEnd();
 
     // Overlay grid lines on the floor
-    glColor3f(0.0f, 0.0f, 0.0f);  // Set grid color to black
     glBegin(GL_LINES);
+    glColor3f(0.0f, 0.0f, 0.0f);  // Set grid color to black
     // Floor grid at y = 0
     for (float i = -halfSize; i <= halfSize; i += step) {
         // Vertical lines along x-axis
@@ -986,7 +998,6 @@ void renderCubeMap() {
     // Uncomment to add rotation animation
     //rotationAngle += 0.1f;
 }
-
 
 void timer(int value) {
     updateMovement();
@@ -1153,11 +1164,11 @@ void renderHUD() {
     glMatrixMode(GL_MODELVIEW);
 }
 
-void cleanupVBO() {
-    glDeleteBuffers(2, cubeVBOs);
-    glDeleteBuffers(2, pyramidVBOs);
-    glDeleteBuffers(2, sphere3DVBOs);
-}
+// void cleanupVBO() {
+//     glDeleteBuffers(2, cubeVBOs);
+//     glDeleteBuffers(2, pyramidVBOs);
+//     glDeleteBuffers(2, sphere3DVBOs);
+// }
 
 
 void display() {
@@ -1175,7 +1186,7 @@ void display() {
     renderPyramid();
     //            size of sphere  number of segments  angle of rotation  x position  y position  z position
     renderSphere3D(1.0f, segments, angleCircle, -2.0f, 17.5f, 5.0f); //this is vbo
-    renderAnotherSphere3D(1.0f, 100, angleCircle, 5.0f, 17.5f, 5.0f); //no vbo
+    renderAnotherSphere3D(1.0f, 10, angleCircle, 5.0f, 17.5f, 5.0f); //no vbo
 
     // Render pause menu overlay if game is paused
     renderPauseMenu();
