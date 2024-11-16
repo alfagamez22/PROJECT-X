@@ -22,6 +22,11 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#include "textureloader.cpp" //texture method
+#include "interaction.h" //movement globals
+#include "particlesys.h" //particle system global var
+#include "cube.h" //cube coordinates
+#include "pyramid.h" //pyramid coords
 
 using namespace std;
 
@@ -39,7 +44,6 @@ void renderPauseMenu();
 void renderCube();
 void renderPyramid();
 void renderSphere3D(float radius, int segments, float angle, float xPos, float yPos, float zPos);
-void renderAnotherSphere3D(float radius, int segments, float angle, float xPos, float yPos, float zPos);
 void renderCubeMap();
 void updateParticles();
 void renderParticles();
@@ -52,105 +56,27 @@ void cleanup();
 
 GLuint loadTexture(const char* filename); // Load texture from file
 
+//Initialize VBOs
+GLuint pyramidVBOs[2], sphere3DVBOs[2], cubeVBOs[2], renderCubeWithGridVBOs[4];
+GLuint textureID;
+
 /* Global variables */
-// Angle of rotation for shapes
-float anglePyramid = 0.0f;
-float angleCube = 0.0f;
-float angleCircle = 0.0f;  // Rotation angle for the circle
-
-int refreshMills = 5; // Refresh interval in milliseconds the lower the better maximum 5 minimum 25 (15 best) to avoid visual bugs
-
-//Camera Dimensions
-// Camera position and orientation starting
-float cameraX = 0.0f;
-float cameraY = 17.5f;
-float cameraZ = 10.0f;
-float cameraSpeed = 0.1f; //can be adjusted the higher the faster 0.1 is the best it was 0.3 kinda quick
-// Camera angles
-float yaw = -90.0f;
-float pitch = 0.0f;
-float lastX = 320.0f;
-float lastY = 240.0f;
-float sensitivity = 0.1f;
-// Camera direction vectors
-float lookX = 0.0f;
-float lookY = 0.0f;
-float lookZ = -1.0f;
-
-// Movement flags and velocity
-bool keyStates[256] = { false };
-float velocityX = 0.0f;
-float velocityZ = 0.0f;
-float maxVelocity = 0.15f;
-float acceleration = 0.05f; //inertia
-float deceleration = 0.1f; //inertia
-
-// Window state
-bool isPaused = false;
-bool firstMouse = true;
 //Draw fps
 chrono::time_point<chrono::high_resolution_clock> startTime;
 int frameCount = 0;
 float fps = 0.0f;
 //Hud display
-bool hudEnabled = false;
+bool hudEnabled = true;
 
 //number of segments for the sphere (higher is laggier) but may bug out 20 is best and smooth circle
 const int segments = 10;
 
-//particle system
-// Random function helper with more granularity
-float randomFloat(float min, float max) {
-    return min + static_cast<float>(rand()) / (static_cast<float>(RAND_MAX / (max - min)));
-}
-float calculateSpeedForDepth(float depthFactor) {
-    const float frontLayerSpeed = 15.0f; // Speed of the front layer
-    const float backLayerSpeed = 15.0f; // Speed of the back layer
-    return backLayerSpeed + (frontLayerSpeed - backLayerSpeed) * depthFactor;
-}
-float calculateSizeForDepth(float depthFactor) {
-    const float minSize = 5.0f; // Minimum size of the particles
-    const float maxSize = 5.0f; // Maximum size of the particles
-    return minSize + (maxSize - minSize) * depthFactor;
-}
-// Added spawn boundaries for the desert storm effect
-const float rightBoundary = 10.0f;   // Where particles spawn 300
-const float leftBoundary = 10.0f;   // Where particles get recycled -300
-const float verticalRange = 10.0f;    // Height range for particles 300
-const float depthRange = 50.0f;       // Depth range for particles when lower depth fps dips 50
-//const float particleSize = 0.5f;      // Size of the particles
-const int maxParticles = 300; // Max particles in the system
-//const float gravity = -9.81f; // Gravity constant (negative to pull downward) good for rain particle system for later
-const float pi = M_PI;  // Using the irrational value of pi for randomness
-float deltaT = 0.016f; // Time step (assuming 60 FPS)
-//speed of the particles multiplier
-float speedMultiplier = 1.01f;  // Adjust this to control particle speed (1.0 default speed kinda fast but good for desert scene)
-// Particle struct and list to store particles
-struct Particle {
-    float position[3];
-    float velocity[3];
-    float size;        // Added variable size for more realistic effect
-    float depthFactor;
-    bool isActive;
-};
-// Spawn area control
-struct SpawnArea {
-    float centerX = 300.0f;    // Center X position of spawn area
-    float centerY = 35.0f;    // Center Y position of spawn area 20 default
-    float centerZ = 0.0f;    // Center Z position of spawn area
-    float rangeX = 250.0f;     // Spawn range in X direction 300
-    float rangeY = 10.0f;     // Spawn range in Y direction 100
-    float rangeZ = 500.0f;     // Spawn range in Z direction 300
-};
-// Default spawn area
-SpawnArea spawnArea;
-vector<Particle> particles;
 
 // Add these global variables at the top for rendercubegrid
-float lightAngle = 89.0f;
-float lightRadius = 100.0f;
-float lightY = 200.0f; //light height
-float lightSpeed = 0.0f;
+float lightAngle = 80.0f;
+float lightRadius = 400.0f;
+float lightY = 150.0f; //light height
+float lightSpeed = 0.05f;
 int currentCorner = 0;
 
 //for logging purposes
@@ -158,122 +84,14 @@ bool resourcesInitialized = false;
 ofstream logFile;
 string logPath;
 
-
-//Initialize VBOs
-GLuint pyramidVBOs[2], sphere3DVBOs[2], cubeVBOs[2];
-GLuint textureID;
-GLuint renderCubeWithGridVBOs[4];
-
 vector<float> vertexData;
 vector<float> gridVertexData;
 vector<float> cubeColorData;
 vector<float> gridColorData;
-
-// Pyramid vertices and colors
-// Vertex and color arrays for the pyramid
-float pyramidVertices[] = {
-    // Front face
-    0.0f, 1.0f, 0.0f,  -1.0f, -1.0f, 1.0f,  1.0f, -1.0f, 1.0f, //triangle face
-    // Right face
-    0.0f, 1.0f, 0.0f,  1.0f, -1.0f, 1.0f,  1.0f, -1.0f, -1.0f, //triangle face
-    // Back face
-    0.0f, 1.0f, 0.0f,  1.0f, -1.0f, -1.0f,  -1.0f, -1.0f, -1.0f, //triangle face
-    // Left face
-    0.0f, 1.0f, 0.0f,  -1.0f, -1.0f, -1.0f,  -1.0f, -1.0f, 1.0f, //triangle face
-    // Bottom face
-    -1.0f, -1.0f, 1.0f,   1.0f, -1.0f, 1.0f,   1.0f, -1.0f, -1.0f,  -1.0f, -1.0f, -1.0f //bottom square
-};
-float pyramidColors[] = {
-    // Front face (red, green, blue)
-    1.0f, 0.0f, 0.0f,  0.0f, 1.0f, 0.0f,  0.0f, 0.0f, 1.0f,
-    // Right face (red, blue, green)
-    1.0f, 0.0f, 0.0f,  0.0f, 0.0f, 1.0f,  0.0f, 1.0f, 0.0f,
-    // Back face (red, green, blue)
-    1.0f, 0.0f, 0.0f,  0.0f, 1.0f, 0.0f,  0.0f, 0.0f, 1.0f,
-    // Left face (red, blue, green)
-    1.0f, 0.0f, 0.0f,  0.0f, 0.0f, 1.0f,  0.0f, 1.0f, 0.0f,
-    // Bottom face (raindbow)
-    1.0f, 0.0f, 0.0f,  0.0f, 1.0f, 0.0f,  0.0f, 0.0f, 1.0f, 0.5f, 0.5f, 0.5f
-};
+//particle system
+vector<Particle> particles;
 
 
-// Vertex and texture arrays for the cube
-float cubeVertices[] = {
-    // Top face
-    1.0f, 1.0f, -1.0f,  -1.0f, 1.0f, -1.0f,  -1.0f, 1.0f, 1.0f,  1.0f, 1.0f, 1.0f,
-    // Bottom face
-    1.0f, -1.0f, 1.0f,  -1.0f, -1.0f, 1.0f,  -1.0f, -1.0f, -1.0f,  1.0f, -1.0f, -1.0f,
-    // Front face
-    1.0f, 1.0f, 1.0f,  -1.0f, 1.0f, 1.0f,  -1.0f, -1.0f, 1.0f,  1.0f, -1.0f, 1.0f,
-    // Back face
-    1.0f, -1.0f, -1.0f,  -1.0f, -1.0f, -1.0f,  -1.0f, 1.0f, -1.0f,  1.0f, 1.0f, -1.0f,
-    // Left face
-    -1.0f, 1.0f, 1.0f,  -1.0f, 1.0f, -1.0f,  -1.0f, -1.0f, -1.0f,  -1.0f, -1.0f, 1.0f,
-    // Right face
-    1.0f, 1.0f, -1.0f,  1.0f, 1.0f, 1.0f,  1.0f, -1.0f, 1.0f,  1.0f, -1.0f, -1.0f
-};
-
-float textureCoords[] = {
-    // Front face
-    0.0f, 0.0f,
-    1.0f, 0.0f,
-    1.0f, 1.0f,
-    0.0f, 1.0f,
-    // Back face
-    1.0f, 0.0f,
-    1.0f, 1.0f,
-    0.0f, 1.0f,
-    0.0f, 0.0f,
-    // Top face
-    0.0f, 1.0f,
-    0.0f, 0.0f,
-    1.0f, 0.0f,
-    1.0f, 1.0f,
-    // Bottom face
-    1.0f, 1.0f,
-    0.0f, 1.0f,
-    0.0f, 0.0f,
-    1.0f, 0.0f,
-    // Right face
-    1.0f, 0.0f,
-    1.0f, 1.0f,
-    0.0f, 1.0f,
-    0.0f, 0.0f,
-    // Left face
-    0.0f, 0.0f,
-    1.0f, 0.0f,
-    1.0f, 1.0f,
-    0.0f, 1.0f
-};
-
-
-//Texture Loader
-GLuint loadTexture(const char* filename) {
-    GLuint textureID;
-    glGenTextures(1, &textureID);
-    glBindTexture(GL_TEXTURE_2D, textureID);
-
-    // Set texture wrapping/filtering options
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-    // Load image using stb_image
-    int width, height, nrChannels;
-    unsigned char* data = stbi_load(filename, &width, &height, &nrChannels, 0);
-
-    if (data) {
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
-        glGenerateMipmap(GL_TEXTURE_2D);
-    }
-    else {
-        printf("Failed to load texture\n");
-    }
-
-    stbi_image_free(data);
-    return textureID;
-}
 
 // Main display function
 int main(int argc, char** argv) {
@@ -303,6 +121,7 @@ int main(int argc, char** argv) {
     glutMainLoop();
     return 0;
 }
+
 //logging or log files
 void logMessage(const char* message) {
     if (!logFile.is_open()) {
@@ -450,8 +269,7 @@ void renderPyramid() {
     glDisableClientState(GL_COLOR_ARRAY);
 
     glPopMatrix();
-}
-
+}\
 void pyramidVBO() {
     // Pyramid VBO setup
     glGenBuffers(2, pyramidVBOs);
@@ -527,17 +345,17 @@ void sphere3dVBO() {
             // Color pattern for beach ball
             if (lon % 3 == 0) {  // Alternate colors
                 sphereColors[index * 3] = 1.0f;  // Red component
-                sphereColors[index * 3 + 1] = 0.0f;  // Green component
-                sphereColors[index * 3 + 2] = 0.0f;  // Blue component
+                sphereColors[index * 3 + 1] = 1.0f;  // Green component
+                sphereColors[index * 3 + 2] = 1.0f;  // Blue component
             }
             else if (lon % 3 == 1) {
-                sphereColors[index * 3] = 0.0f;  // Red component
+                sphereColors[index * 3] = 1.0f;  // Red component
                 sphereColors[index * 3 + 1] = 1.0f;  // Green component (Yellow)
-                sphereColors[index * 3 + 2] = 0.0f;  // Blue component
+                sphereColors[index * 3 + 2] = 1.0f;  // Blue component
             }
             else {
-                sphereColors[index * 3] = 0.0f;  // Red component
-                sphereColors[index * 3 + 1] = 0.0f;  // Green component
+                sphereColors[index * 3] = 1.0f;  // Red component
+                sphereColors[index * 3 + 1] = 1.0f;  // Green component
                 sphereColors[index * 3 + 2] = 1.0f;  // Blue component
             }
             ++index;
@@ -607,56 +425,56 @@ void renderCubeWithGrid(float size, int gridDivisions = 4) {
     gridVertexData.clear();
     gridColorData.clear();
 
-    // Define vertices using glm::vec3
-    vector<glm::vec3> vertices = {
+    // Define vertices as float arrays
+    const float vertices[] = {
         // Front face
-        glm::vec3(-halfSize, -halfSize,  halfSize),
-        glm::vec3(halfSize, -halfSize,  halfSize),
-        glm::vec3(halfSize,  halfSize,  halfSize),
-        glm::vec3(-halfSize,  halfSize,  halfSize),
+        -halfSize, -halfSize,  halfSize,
+         halfSize, -halfSize,  halfSize,
+         halfSize,  halfSize,  halfSize,
+        -halfSize,  halfSize,  halfSize,
 
         // Back face
-        glm::vec3(-halfSize, -halfSize, -halfSize),
-        glm::vec3(-halfSize,  halfSize, -halfSize),
-        glm::vec3(halfSize,  halfSize, -halfSize),
-        glm::vec3(halfSize, -halfSize, -halfSize),
+        -halfSize, -halfSize, -halfSize,
+        -halfSize,  halfSize, -halfSize,
+         halfSize,  halfSize, -halfSize,
+         halfSize, -halfSize, -halfSize,
 
-        // Left face
-        glm::vec3(-halfSize, -halfSize, -halfSize),
-        glm::vec3(-halfSize, -halfSize,  halfSize),
-        glm::vec3(-halfSize,  halfSize,  halfSize),
-        glm::vec3(-halfSize,  halfSize, -halfSize),
+         // Left face
+         -halfSize, -halfSize, -halfSize,
+         -halfSize, -halfSize,  halfSize,
+         -halfSize,  halfSize,  halfSize,
+         -halfSize,  halfSize, -halfSize,
 
-        // Right face
-        glm::vec3(halfSize, -halfSize, -halfSize),
-        glm::vec3(halfSize,  halfSize, -halfSize),
-        glm::vec3(halfSize,  halfSize,  halfSize),
-        glm::vec3(halfSize, -halfSize,  halfSize),
+         // Right face
+          halfSize, -halfSize, -halfSize,
+          halfSize,  halfSize, -halfSize,
+          halfSize,  halfSize,  halfSize,
+          halfSize, -halfSize,  halfSize,
 
-        // Top face
-        glm::vec3(-halfSize, halfSize, -halfSize),
-        glm::vec3(-halfSize, halfSize,  halfSize),
-        glm::vec3(halfSize, halfSize,  halfSize),
-        glm::vec3(halfSize, halfSize, -halfSize),
+          // Top face
+          -halfSize, halfSize, -halfSize,
+          -halfSize, halfSize,  halfSize,
+           halfSize, halfSize,  halfSize,
+           halfSize, halfSize, -halfSize,
 
-        // Bottom face
-        glm::vec3(-halfSize, -halfSize, -halfSize),
-        glm::vec3(halfSize, -halfSize, -halfSize),
-        glm::vec3(halfSize, -halfSize,  halfSize),
-        glm::vec3(-halfSize, -halfSize,  halfSize),
+           // Bottom face
+           -halfSize, -halfSize, -halfSize,
+            halfSize, -halfSize, -halfSize,
+            halfSize, -halfSize,  halfSize,
+           -halfSize, -halfSize,  halfSize,
 
-        // Floor vertices
-        glm::vec3(-halfSize, 0.0f, -halfSize),
-        glm::vec3(halfSize, 0.0f, -halfSize),
-        glm::vec3(halfSize, 0.0f, halfSize),
-        glm::vec3(-halfSize, 0.0f, halfSize)
+           // Floor vertices
+           -halfSize, 0.0f, -halfSize,
+            halfSize, 0.0f, -halfSize,
+            halfSize, 0.0f, halfSize,
+           -halfSize, 0.0f, halfSize
     };
 
-    // Convert vertices to flat array
-    for (const auto& vertex : vertices) {
-        vertexData.push_back(vertex.x);
-        vertexData.push_back(vertex.y);
-        vertexData.push_back(vertex.z);
+    // Add vertices to vector
+    for (int i = 0; i < sizeof(vertices) / sizeof(float); i += 3) {
+        vertexData.push_back(vertices[i]);
+        vertexData.push_back(vertices[i + 1]);
+        vertexData.push_back(vertices[i + 2]);
 
         // Add uniform gray color for each vertex
         cubeColorData.push_back(0.8f);  // Gray (R)
@@ -666,59 +484,64 @@ void renderCubeWithGrid(float size, int gridDivisions = 4) {
 
     // Generate grid lines for each face
     for (int face = 0; face < 7; face++) {
-        glm::vec3 origin, dirX, dirY;
+        float originX, originY, originZ;
+        float dirX[3], dirY[3];
 
         switch (face) {
         case 0: // Front
-            origin = glm::vec3(-halfSize, -halfSize, halfSize);
-            dirX = glm::vec3(1, 0, 0);
-            dirY = glm::vec3(0, 1, 0);
+            originX = -halfSize; originY = -halfSize; originZ = halfSize;
+            dirX[0] = 1; dirX[1] = 0; dirX[2] = 0;
+            dirY[0] = 0; dirY[1] = 1; dirY[2] = 0;
             break;
         case 1: // Back
-            origin = glm::vec3(-halfSize, -halfSize, -halfSize);
-            dirX = glm::vec3(1, 0, 0);
-            dirY = glm::vec3(0, 1, 0);
+            originX = -halfSize; originY = -halfSize; originZ = -halfSize;
+            dirX[0] = 1; dirX[1] = 0; dirX[2] = 0;
+            dirY[0] = 0; dirY[1] = 1; dirY[2] = 0;
             break;
         case 2: // Left
-            origin = glm::vec3(-halfSize, -halfSize, -halfSize);
-            dirX = glm::vec3(0, 0, 1);
-            dirY = glm::vec3(0, 1, 0);
+            originX = -halfSize; originY = -halfSize; originZ = -halfSize;
+            dirX[0] = 0; dirX[1] = 0; dirX[2] = 1;
+            dirY[0] = 0; dirY[1] = 1; dirY[2] = 0;
             break;
         case 3: // Right
-            origin = glm::vec3(halfSize, -halfSize, -halfSize);
-            dirX = glm::vec3(0, 0, 1);
-            dirY = glm::vec3(0, 1, 0);
+            originX = halfSize; originY = -halfSize; originZ = -halfSize;
+            dirX[0] = 0; dirX[1] = 0; dirX[2] = 1;
+            dirY[0] = 0; dirY[1] = 1; dirY[2] = 0;
             break;
         case 4: // Top
-            origin = glm::vec3(-halfSize, halfSize, -halfSize);
-            dirX = glm::vec3(1, 0, 0);
-            dirY = glm::vec3(0, 0, 1);
+            originX = -halfSize; originY = halfSize; originZ = -halfSize;
+            dirX[0] = 1; dirX[1] = 0; dirX[2] = 0;
+            dirY[0] = 0; dirY[1] = 0; dirY[2] = 1;
             break;
         case 5: // Bottom
-            origin = glm::vec3(-halfSize, -halfSize, -halfSize);
-            dirX = glm::vec3(1, 0, 0);
-            dirY = glm::vec3(0, 0, 1);
+            originX = -halfSize; originY = -halfSize; originZ = -halfSize;
+            dirX[0] = 1; dirX[1] = 0; dirX[2] = 0;
+            dirY[0] = 0; dirY[1] = 0; dirY[2] = 1;
             break;
         case 6: // Floor
-            origin = glm::vec3(-halfSize, 0.0f, -halfSize);
-            dirX = glm::vec3(1, 0, 0);
-            dirY = glm::vec3(0, 0, 1);
+            originX = -halfSize; originY = 0.0f; originZ = -halfSize;
+            dirX[0] = 1; dirX[1] = 0; dirX[2] = 0;
+            dirY[0] = 0; dirY[1] = 0; dirY[2] = 1;
             break;
         }
 
         // Draw grid lines
         for (float i = 0; i <= gridDivisions; i++) {
             float t = i * step;
-            glm::vec3 start = origin + dirX * t;
-            glm::vec3 end = start + dirY * size;
+            float startX = originX + dirX[0] * t;
+            float startY = originY + dirX[1] * t;
+            float startZ = originZ + dirX[2] * t;
+            float endX = startX + dirY[0] * size;
+            float endY = startY + dirY[1] * size;
+            float endZ = startZ + dirY[2] * size;
 
             // Add line vertices
-            gridVertexData.push_back(start.x);
-            gridVertexData.push_back(start.y);
-            gridVertexData.push_back(start.z);
-            gridVertexData.push_back(end.x);
-            gridVertexData.push_back(end.y);
-            gridVertexData.push_back(end.z);
+            gridVertexData.push_back(startX);
+            gridVertexData.push_back(startY);
+            gridVertexData.push_back(startZ);
+            gridVertexData.push_back(endX);
+            gridVertexData.push_back(endY);
+            gridVertexData.push_back(endZ);
 
             // Add darker gray color for grid lines
             for (int j = 0; j < 2; j++) {  // Two vertices per line
@@ -727,28 +550,111 @@ void renderCubeWithGrid(float size, int gridDivisions = 4) {
                 gridColorData.push_back(0.3f);  // Darker gray (B)
             }
 
-            start = origin + dirY * t;
-            end = start + dirX * size;
+            startX = originX + dirY[0] * t;
+            startY = originY + dirY[1] * t;
+            startZ = originZ + dirY[2] * t;
+            endX = startX + dirX[0] * size;
+            endY = startY + dirX[1] * size;
+            endZ = startZ + dirX[2] * size;
 
             // Add line vertices
-            gridVertexData.push_back(start.x);
-            gridVertexData.push_back(start.y);
-            gridVertexData.push_back(start.z);
-            gridVertexData.push_back(end.x);
-            gridVertexData.push_back(end.y);
-            gridVertexData.push_back(end.z);
+            gridVertexData.push_back(startX);
+            gridVertexData.push_back(startY);
+            gridVertexData.push_back(startZ);
+            gridVertexData.push_back(endX);
+            gridVertexData.push_back(endY);
+            gridVertexData.push_back(endZ);
 
-            // Add darker gray color for grid lines
-            for (int j = 0; j < 2; j++) {  // Two vertices per line
-                gridColorData.push_back(0.3f);  // Darker gray (R)
-                gridColorData.push_back(0.3f);  // Darker gray (G)
-                gridColorData.push_back(0.3f);  // Darker gray (B)
+            // Add colors for the second set of lines
+            for (int j = 0; j < 2; j++) {
+                gridColorData.push_back(0.3f);
+                gridColorData.push_back(0.3f);
+                gridColorData.push_back(0.3f);
             }
         }
     }
-
 }
 
+void renderCubeMap() {
+    float position[3] = { 0.0f, 16.0f, 0.0f };
+    float size = 1024.0f;
+    int gridDivisions = 36;
+    float halfSize = size / 2.0f;
+
+    // Define corner positions
+    float corners[4][3] = {
+        {-halfSize, lightY + halfSize, -halfSize},
+        {halfSize, lightY + halfSize, -halfSize},
+        {halfSize, lightY + halfSize, halfSize},
+        {-halfSize, lightY + halfSize, halfSize}
+    };
+
+    // Calculate interpolated position between corners
+    int nextCorner = (currentCorner + 1) % 4;
+    float t = fmod(lightAngle, 90.0f) / 90.0f;
+
+    // Interpolate position
+    float lightPos[3];
+    for (int i = 0; i < 3; i++) {
+        lightPos[i] = corners[currentCorner][i] * (1.0f - t) +
+            corners[nextCorner][i] * t;
+        // Scale by light radius
+        lightPos[i] *= (lightRadius / halfSize);
+    }
+
+    GLfloat lightPosition[] = { lightPos[0], lightPos[1], lightPos[2], 1.0f };
+
+    glEnable(GL_LIGHTING);
+    glEnable(GL_LIGHT0);
+
+    GLfloat lightAmbient[] = { 0.5f, 0.5f, 0.5f, 1.0f };
+    GLfloat lightDiffuse[] = { 0.5f, 0.5f, 0.5f, 1.0f };
+    GLfloat lightSpecular[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+    glLightfv(GL_LIGHT0, GL_POSITION, lightPosition);
+    glLightfv(GL_LIGHT0, GL_AMBIENT, lightAmbient);
+    glLightfv(GL_LIGHT0, GL_DIFFUSE, lightDiffuse);
+    glLightfv(GL_LIGHT0, GL_SPECULAR, lightSpecular);
+
+    GLfloat materialAmbient[] = { 0.2f, 0.2f, 0.2f, 1.0f };
+    GLfloat materialDiffuse[] = { 0.3f, 0.3f, 0.3f, 1.0f };
+    GLfloat materialSpecular[] = { 0.3f, 0.3f, 0.3f, 1.0f };
+    GLfloat materialShininess[] = { 100.0f };
+
+    glMaterialfv(GL_FRONT, GL_AMBIENT, materialAmbient);
+    glMaterialfv(GL_FRONT, GL_DIFFUSE, materialDiffuse);
+    glMaterialfv(GL_FRONT, GL_SPECULAR, materialSpecular);
+    glMaterialfv(GL_FRONT, GL_SHININESS, materialShininess);
+
+    renderCubeWithGrid(size, gridDivisions);
+
+    glPushMatrix();
+    {
+        glTranslatef(position[0], position[1], position[2]);
+
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(1.0f, 1.0f);
+
+        renderCubeWithGridVBO();
+
+        glDisable(GL_POLYGON_OFFSET_FILL);
+    }
+    glPopMatrix();
+
+    glDisable(GL_LIGHTING);
+    glDisable(GL_LIGHT0);
+
+    if (!isPaused) {
+        lightAngle += lightSpeed;
+        if (lightAngle >= 360.0f) {
+            lightAngle = 0.0f;
+            currentCorner = 0;
+        }
+        else if (fmod(lightAngle, 90.0f) < lightSpeed) {
+            currentCorner = (currentCorner + 1) % 4;
+        }
+    }
+}
 void initVBOs() {
     cubeVBO();
     pyramidVBO();
@@ -872,13 +778,11 @@ void mouseMovement(int x, int y) {
 
     updateCameraDirection();
 }
-
 void updateCameraDirection() {
     lookX = cos(yaw * M_PI / 180.0f) * cos(pitch * M_PI / 180.0f);
     lookY = sin(pitch * M_PI / 180.0f);
     lookZ = sin(yaw * M_PI / 180.0f) * cos(pitch * M_PI / 180.0f);
 }
-
 void keyboardDown(unsigned char key, int x, int y) {
     keyStates[key] = true;
 
@@ -912,11 +816,9 @@ void keyboardDown(unsigned char key, int x, int y) {
         }
     }
 }
-
 void keyboardUp(unsigned char key, int x, int y) {
     keyStates[key] = false;
 }
-
 void updateMovement() {
     if (isPaused) return;
 
@@ -963,7 +865,6 @@ void updateMovement() {
     if (keyStates['q'] || keyStates['Q']) cameraY += cameraSpeed;
     if (keyStates['e'] || keyStates['E']) cameraY -= cameraSpeed;
 }
-
 void renderPauseMenu() {
     if (!isPaused) return;
 
@@ -1057,7 +958,6 @@ void spawnParticle(float centerX = -1.0f, float centerY = -1.0f, float centerZ =
         particles.push_back(newParticle);
     }
 }
-
 void initializeParticles() {
     // Initially populate the system with particles across the entire width
     for (int i = 0; i < maxParticles; ++i) {
@@ -1068,8 +968,8 @@ void initializeParticles() {
             newParticle.position[2] = randomFloat(-depthRange, depthRange);
 
             newParticle.velocity[0] = randomFloat(-15.0f, -10.0f);
-            newParticle.velocity[1] = randomFloat(-15.0f, -10.0f);
-            newParticle.velocity[2] = randomFloat(-15.0f, -10.0f);
+            newParticle.velocity[1] = randomFloat(-25.0f, -20.0f);
+            newParticle.velocity[2] = randomFloat(-35.0f, -30.0f);
 
             newParticle.size = randomFloat(0.5f, 2.0f);
             newParticle.isActive = true;
@@ -1078,7 +978,6 @@ void initializeParticles() {
         }
     }
 }
-
 void updateParticles() {
     float respawnX = spawnArea.centerX;
     float respawnRange = spawnArea.rangeX;
@@ -1125,7 +1024,6 @@ void updateParticles() {
         }
     }
 }
-
 void renderParticles() {
     // Sort particles by depth for proper rendering
     sort(particles.begin(), particles.end(),
@@ -1139,7 +1037,6 @@ void renderParticles() {
         }
     }
 }
-
 void update() {
     // Spawn new particles if needed
     if (particles.size() < maxParticles) {
@@ -1150,160 +1047,7 @@ void update() {
 }
 
 
-void renderCubeMap() {
-    glm::vec3 position(0.0f, 16.0f, 0.0f);
-    float size = 1024.0f;
-    int gridDivisions = 36;
-
-    float halfSize = size / 2.0f;
-
-    // Calculate corner-based light position
-    float cornerX = halfSize * cos(lightAngle * M_PI / 180.0f);
-    float cornerZ = halfSize * sin(lightAngle * M_PI / 180.0f);
-
-    // Snap to nearest corner when within threshold
-    if (fabs(cornerX) > 0.7 * halfSize) cornerX = (cornerX > 0) ? halfSize : -halfSize;
-    if (fabs(cornerZ) > 0.7 * halfSize) cornerZ = (cornerZ > 0) ? halfSize : -halfSize;
-
-    // Calculate moving light position
-    float lightX = lightRadius * cos(lightAngle * M_PI / 180.0f);
-    float lightZ = lightRadius * sin(lightAngle * M_PI / 180.0f);
-    GLfloat lightPosition[] = { lightX, lightY + halfSize, lightZ, cornerZ, 1.0f };
-
-    //enable lighting
-    glEnable(GL_LIGHTING);
-    glEnable(GL_LIGHT0);
-
-    GLfloat lightAmbient[] = { 0.3f, 0.3f, 0.3f, 1.0f };
-    GLfloat lightDiffuse[] = { 0.5f, 0.5f, 0.5f, 1.0f };
-    GLfloat lightSpecular[] = { 1.0f, 1.0f, 1.0f, 1.0f };
-
-    glLightfv(GL_LIGHT0, GL_POSITION, lightPosition);
-    glLightfv(GL_LIGHT0, GL_AMBIENT, lightAmbient);
-    glLightfv(GL_LIGHT0, GL_DIFFUSE, lightDiffuse);
-    glLightfv(GL_LIGHT0, GL_SPECULAR, lightSpecular);
-
-    // Set material properties
-    GLfloat materialAmbient[] = { 0.2f, 0.2f, 0.2f, 1.0f };
-    GLfloat materialDiffuse[] = { 0.3f, 0.3f, 0.3f, 1.0f };
-    GLfloat materialSpecular[] = { 0.3f, 0.3f, 0.3f, 1.0f };
-    GLfloat materialShininess[] = { 10.0f };
-
-    glMaterialfv(GL_FRONT, GL_AMBIENT, materialAmbient);
-    glMaterialfv(GL_FRONT, GL_DIFFUSE, materialDiffuse);
-    glMaterialfv(GL_FRONT, GL_SPECULAR, materialSpecular);
-    glMaterialfv(GL_FRONT, GL_SHININESS, materialShininess);
-
-    // Generate vertex data
-    renderCubeWithGrid(size, gridDivisions);
-
-    glPushMatrix();
-    {
-        glm::mat4 model = glm::mat4(1.0f);
-        model = glm::translate(model, position);
-        glMultMatrixf(glm::value_ptr(model));
-
-        glEnable(GL_POLYGON_OFFSET_FILL);
-        glPolygonOffset(1.0f, 1.0f);
-
-        renderCubeWithGridVBO();
-
-        glDisable(GL_POLYGON_OFFSET_FILL);
-    }
-    glPopMatrix();
-
-
-    // Disable lighting after rendering
-    glDisable(GL_LIGHTING);
-    glDisable(GL_LIGHT0);
-
-    if (!isPaused) {
-        lightAngle += lightSpeed;
-        if (lightAngle >= 360.0f) lightAngle = 0.0f;
-    }
-}
-
-void renderAnotherSphere3D(float radius, int segments, float angle, float xPos, float yPos, float zPos) {
-    // Arrays for vertices and colors
-    float sphereVertices[(segments + 1) * (segments + 1) * 3];
-    float sphereColors[(segments + 1) * (segments + 1) * 3];
-
-    int index = 0;
-    for (int lat = 0; lat <= segments; ++lat) {
-        float theta = lat * M_PI / segments;  // Latitude angle (from 0 to pi)
-        for (int lon = 0; lon <= segments; ++lon) {
-            float phi = lon * 2.0f * M_PI / segments; // Longitude angle (from 0 to 2pi)
-
-            // Calculate the x, y, z position of each vertex on the sphere
-            sphereVertices[index * 3] = radius * sin(theta) * cos(phi); // x
-            sphereVertices[index * 3 + 1] = radius * sin(theta) * sin(phi); // y
-            sphereVertices[index * 3 + 2] = radius * cos(theta); // z
-
-            // Set color for each vertex (simple gradient)
-            sphereColors[index * 3] = (float)lat / segments; // Red
-            sphereColors[index * 3 + 1] = (float)lon / segments; // Green
-            sphereColors[index * 3 + 2] = 0.5f; // Blue
-
-            ++index;
-        }
-    }
-
-    glPushMatrix();
-    // Position the sphere in 3D space using xPos, yPos, zPos
-    glTranslatef(xPos, yPos, zPos);
-
-    // Rotate the sphere for animation or effect
-    glRotatef(angle, 1.0f, 0.0f, 0.0f); // Rotate around X-axis
-    glRotatef(angle, 0.0f, 1.0f, 0.0f); // Rotate around Y-axis
-
-    glEnableClientState(GL_VERTEX_ARRAY);
-    glEnableClientState(GL_COLOR_ARRAY);
-
-    glVertexPointer(3, GL_FLOAT, 0, sphereVertices);
-    glColorPointer(3, GL_FLOAT, 0, sphereColors);
-
-    // Draw the solid sphere using GL_TRIANGLE_STRIP
-    for (int lat = 0; lat < segments; ++lat) {
-        for (int lon = 0; lon < segments; ++lon) {
-            // Get the 4 vertices of each quad (for each latitude-longitude pair)
-            int p1 = lat * (segments + 1) + lon;
-            int p2 = p1 + 1;
-            int p3 = (lat + 1) * (segments + 1) + lon;
-            int p4 = p3 + 1;
-
-            // Create two triangles for each quad
-            float vertices[6][3] = {
-                {sphereVertices[p1 * 3], sphereVertices[p1 * 3 + 1], sphereVertices[p1 * 3 + 2]},
-                {sphereVertices[p2 * 3], sphereVertices[p2 * 3 + 1], sphereVertices[p2 * 3 + 2]},
-                {sphereVertices[p3 * 3], sphereVertices[p3 * 3 + 1], sphereVertices[p3 * 3 + 2]},
-                {sphereVertices[p3 * 3], sphereVertices[p3 * 3 + 1], sphereVertices[p3 * 3 + 2]},
-                {sphereVertices[p2 * 3], sphereVertices[p2 * 3 + 1], sphereVertices[p2 * 3 + 2]},
-                {sphereVertices[p4 * 3], sphereVertices[p4 * 3 + 1], sphereVertices[p4 * 3 + 2]}
-            };
-
-            glBegin(GL_TRIANGLES);
-            for (int i = 0; i < 6; ++i) {
-                glColor3fv(&sphereColors[(p1 + i) * 3]);
-                glVertex3fv(vertices[i]);
-            }
-            glEnd();
-        }
-    }
-
-    glDisableClientState(GL_VERTEX_ARRAY);
-    glDisableClientState(GL_COLOR_ARRAY);
-
-    glPopMatrix();
-}
-
-void timer(int value) {
-    updateMovement();
-    glutPostRedisplay();
-    glutTimerFunc(refreshMills, timer, 0);
-}
-
-//perspective projection
-void reshape(GLsizei width, GLsizei height) {
+void reshape(GLsizei width, GLsizei height) { //perspective projection
     // Prevent division by zero
     if (height == 0) height = 1;
     float aspect = (float)width / (float)height;
@@ -1341,14 +1085,13 @@ void reshape(GLsizei width, GLsizei height) {
     glEnable(GL_FOG);
     glFogi(GL_FOG_MODE, GL_LINEAR);
     glFogfv(GL_FOG_COLOR, fogColor);
-    glFogf(GL_FOG_START, 15000.0f);     // Start fog after 2000 units 35 best nearest
+    glFogf(GL_FOG_START, 1000.0f);     // Start fog after 2000 units 35 best nearest
     glFogf(GL_FOG_END, 35000.0f);       // Full fog by 4500 units 50 or100 for farthest
     glHint(GL_FOG_HINT, GL_NICEST);
 
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
 }
-
 void renderFPS() {
     // Calculate FPS
     frameCount++;
@@ -1385,14 +1128,12 @@ void renderFPS() {
     glMatrixMode(GL_MODELVIEW);
     glPopMatrix();
 }
-
 void renderText(float x, float y, const string& text) {
     glRasterPos2f(x, y);
     for (char c : text) {
         glutBitmapCharacter(GLUT_BITMAP_HELVETICA_12, c);
     }
 }
-
 void displayCoordinates(float coordX, float coordY, float coordZ) {
     // Convert the coordinates to a string for display
     ostringstream oss;
@@ -1428,7 +1169,6 @@ void displayCoordinates(float coordX, float coordY, float coordZ) {
     glPopMatrix();
     glMatrixMode(GL_MODELVIEW);
 }
-
 void renderHUD() {
     if (!hudEnabled) return;  // Only render if HUD is enabled
 
@@ -1460,40 +1200,32 @@ void renderHUD() {
     glPopMatrix();
     glMatrixMode(GL_MODELVIEW);
 }
+void timer(int value) {
+    updateMovement();
+    glutPostRedisplay();
+    glutTimerFunc(refreshMills, timer, 0);
+}
 
 void display() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
 
-    // Set camera position and orientation
-    gluLookAt(cameraX, cameraY, cameraZ, cameraX + lookX, cameraY + lookY, cameraZ + lookZ, 0.0f, 1.0f, 0.0f);
-    // Render the complete cube map (floor, ceiling, and walls)
-    renderCubeMap();
-
+    gluLookAt(cameraX, cameraY, cameraZ, cameraX + lookX, cameraY + lookY, cameraZ + lookZ, 0.0f, 1.0f, 0.0f);  // Set camera position and orientation
+    renderCubeMap(); //skybox  // Render the complete cube map (floor, ceiling, and walls)
     // Render shapes
     renderCube();         // Only render cube once
-    renderPyramid();
-    //            size of sphere  number of segments  angle of rotation  x position  y position  z position
-    renderSphere3D(1.0f, segments, angleCircle, -2.0f, 17.5f, 5.0f); //this is vbo
-    renderAnotherSphere3D(1.0f, 10, angleCircle, 5.0f, 17.5f, 5.0f); //no vbo
+    renderPyramid();   //render pyramid
+    renderSphere3D(1.0f, segments, angleCircle, -2.0f, 17.5f, 5.0f); //this is vbo  //size of sphere  number of segments  angle of rotation  x position  y position  z position
 
-    // Render pause menu overlay if game is paused
-    renderPauseMenu();
+    renderPauseMenu(); // Render pause menu overlay if game is paused
+    renderFPS(); //fps
+    displayCoordinates(cameraX, cameraY, cameraZ); // Display the coordinates of the camera
+    renderHUD(); //displays the HUD
 
-    renderFPS();
-
-    // Display the coordinates of the camera
-    displayCoordinates(cameraX, cameraY, cameraZ);
-
-    //displays the HUD
-    renderHUD();
-
-    // display particle system
-    updateParticles();
-    renderParticles();
-
-    update();
+    updateParticles();  // display particle system
+    renderParticles(); // display particle system
+    update(); //keeps updating to spawn particles
 
     glutSwapBuffers();
 
@@ -1504,31 +1236,365 @@ void display() {
     }
 }
 
+/*
+global
+// void renderAnotherSphere3D(float radius, int segments, float angle, float xPos, float yPos, float zPos);
+display
+// renderAnotherSphere3D(1.0f, 10, angleCircle, 5.0f, 17.5f, 5.0f); //no vbo
+
+
+    void renderAnotherSphere3D(float radius, int segments, float angle, float xPos, float yPos, float zPos) {
+        // Arrays for vertices and colors
+        float sphereVertices[(segments + 1) * (segments + 1) * 3];
+        float sphereColors[(segments + 1) * (segments + 1) * 3];
+
+        int index = 0;
+        for (int lat = 0; lat <= segments; ++lat) {
+            float theta = lat * M_PI / segments;  // Latitude angle (from 0 to pi)
+            for (int lon = 0; lon <= segments; ++lon) {
+                float phi = lon * 2.0f * M_PI / segments; // Longitude angle (from 0 to 2pi)
+
+                // Calculate the x, y, z position of each vertex on the sphere
+                sphereVertices[index * 3] = radius * sin(theta) * cos(phi); // x
+                sphereVertices[index * 3 + 1] = radius * sin(theta) * sin(phi); // y
+                sphereVertices[index * 3 + 2] = radius * cos(theta); // z
+
+                // Set color for each vertex (simple gradient)
+                sphereColors[index * 3] = (float)lat / segments; // Red
+                sphereColors[index * 3 + 1] = (float)lon / segments; // Green
+                sphereColors[index * 3 + 2] = 0.5f; // Blue
+
+                ++index;
+            }
+        }
+
+        glPushMatrix();
+        // Position the sphere in 3D space using xPos, yPos, zPos
+        glTranslatef(xPos, yPos, zPos);
+
+        // Rotate the sphere for animation or effect
+        glRotatef(angle, 1.0f, 0.0f, 0.0f); // Rotate around X-axis
+        glRotatef(angle, 0.0f, 1.0f, 0.0f); // Rotate around Y-axis
+
+        glEnableClientState(GL_VERTEX_ARRAY);
+        glEnableClientState(GL_COLOR_ARRAY);
+
+        glVertexPointer(3, GL_FLOAT, 0, sphereVertices);
+        glColorPointer(3, GL_FLOAT, 0, sphereColors);
+
+        // Draw the solid sphere using GL_TRIANGLE_STRIP
+        for (int lat = 0; lat < segments; ++lat) {
+            for (int lon = 0; lon < segments; ++lon) {
+                // Get the 4 vertices of each quad (for each latitude-longitude pair)
+                int p1 = lat * (segments + 1) + lon;
+                int p2 = p1 + 1;
+                int p3 = (lat + 1) * (segments + 1) + lon;
+                int p4 = p3 + 1;
+
+                // Create two triangles for each quad
+                float vertices[6][3] = {
+                    {sphereVertices[p1 * 3], sphereVertices[p1 * 3 + 1], sphereVertices[p1 * 3 + 2]},
+                    {sphereVertices[p2 * 3], sphereVertices[p2 * 3 + 1], sphereVertices[p2 * 3 + 2]},
+                    {sphereVertices[p3 * 3], sphereVertices[p3 * 3 + 1], sphereVertices[p3 * 3 + 2]},
+                    {sphereVertices[p3 * 3], sphereVertices[p3 * 3 + 1], sphereVertices[p3 * 3 + 2]},
+                    {sphereVertices[p2 * 3], sphereVertices[p2 * 3 + 1], sphereVertices[p2 * 3 + 2]},
+                    {sphereVertices[p4 * 3], sphereVertices[p4 * 3 + 1], sphereVertices[p4 * 3 + 2]}
+                };
+
+                glBegin(GL_TRIANGLES);
+                for (int i = 0; i < 6; ++i) {
+                    glColor3fv(&sphereColors[(p1 + i) * 3]);
+                    glVertex3fv(vertices[i]);
+                }
+                glEnd();
+            }
+        }
+
+        glDisableClientState(GL_VERTEX_ARRAY);
+        glDisableClientState(GL_COLOR_ARRAY);
+
+        glPopMatrix();
+    }
+
+
 
 // void renderCubeMap() {
-//     // Position using GLM vectors
 //     glm::vec3 position(0.0f, 16.0f, 0.0f);
 //     float size = 1024.0f;
 //     int gridDivisions = 36;
 
+//     float halfSize = size / 2.0f;
+
+//     // Calculate corner-based light position
+//     float cornerX = halfSize * cos(lightAngle * M_PI / 180.0f);
+//     float cornerZ = halfSize * sin(lightAngle * M_PI / 180.0f);
+
+//     // Snap to nearest corner when within threshold
+//     if (fabs(cornerX) > 0.7 * halfSize) cornerX = (cornerX > 0) ? halfSize : -halfSize;
+//     if (fabs(cornerZ) > 0.7 * halfSize) cornerZ = (cornerZ > 0) ? halfSize : -halfSize;
+
+//     // Calculate moving light position
+//     float lightX = lightRadius * cos(lightAngle * M_PI / 180.0f);
+//     float lightZ = lightRadius * sin(lightAngle * M_PI / 180.0f);
+//     GLfloat lightPosition[] = { lightX, lightY + halfSize, lightZ, cornerZ, 1.0f };
+
+//     //enable lighting
+//     glEnable(GL_LIGHTING);
+//     glEnable(GL_LIGHT0);
+
+//     GLfloat lightAmbient[] = { 0.3f, 0.3f, 0.3f, 1.0f };
+//     GLfloat lightDiffuse[] = { 0.5f, 0.5f, 0.5f, 1.0f };
+//     GLfloat lightSpecular[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+//     glLightfv(GL_LIGHT0, GL_POSITION, lightPosition);
+//     glLightfv(GL_LIGHT0, GL_AMBIENT, lightAmbient);
+//     glLightfv(GL_LIGHT0, GL_DIFFUSE, lightDiffuse);
+//     glLightfv(GL_LIGHT0, GL_SPECULAR, lightSpecular);
+
+//     // Set material properties
+//     GLfloat materialAmbient[] = { 0.2f, 0.2f, 0.2f, 1.0f };
+//     GLfloat materialDiffuse[] = { 0.3f, 0.3f, 0.3f, 1.0f };
+//     GLfloat materialSpecular[] = { 0.3f, 0.3f, 0.3f, 1.0f };
+//     GLfloat materialShininess[] = { 10.0f };
+
+//     glMaterialfv(GL_FRONT, GL_AMBIENT, materialAmbient);
+//     glMaterialfv(GL_FRONT, GL_DIFFUSE, materialDiffuse);
+//     glMaterialfv(GL_FRONT, GL_SPECULAR, materialSpecular);
+//     glMaterialfv(GL_FRONT, GL_SHININESS, materialShininess);
+
+//     // Generate vertex data
+//     renderCubeWithGrid(size, gridDivisions);
+
 //     glPushMatrix();
 //     {
-//         // Create transformation matrix
 //         glm::mat4 model = glm::mat4(1.0f);
 //         model = glm::translate(model, position);
-
-        //// Optional rotation
-        // model = glm::rotate(model, glm::radians(rotationAngle), glm::vec3(0.1f, 1.0f, 0.1f));
-
-//         // Apply transformation
 //         glMultMatrixf(glm::value_ptr(model));
 
 //         glEnable(GL_POLYGON_OFFSET_FILL);
 //         glPolygonOffset(1.0f, 1.0f);
 
-//         renderCubeWithGrid(size, gridDivisions);
+//         renderCubeWithGridVBO();
 
 //         glDisable(GL_POLYGON_OFFSET_FILL);
 //     }
 //     glPopMatrix();
+
+
+//     // Disable lighting after rendering
+//     glDisable(GL_LIGHTING);
+//     glDisable(GL_LIGHT0);
+
+//     if (!isPaused) {
+//         lightAngle += lightSpeed;
+//         if (lightAngle >= 360.0f) lightAngle = 0.0f;
+//     }
 // }
+
+
+
+void renderCubeWithGridVBO() {
+    // Generate VBO IDs
+    glGenBuffers(4, renderCubeWithGridVBOs);
+
+    // Upload cube vertex data
+    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[0]);
+    glBufferData(GL_ARRAY_BUFFER, vertexData.size() * sizeof(float), vertexData.data(), GL_STATIC_DRAW);
+
+    // Upload cube color data
+    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[1]);
+    glBufferData(GL_ARRAY_BUFFER, cubeColorData.size() * sizeof(float), cubeColorData.data(), GL_STATIC_DRAW);
+
+    // Upload grid vertex data
+    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[2]);
+    glBufferData(GL_ARRAY_BUFFER, gridVertexData.size() * sizeof(float), gridVertexData.data(), GL_STATIC_DRAW);
+
+    // Upload grid color data
+    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[3]);
+    glBufferData(GL_ARRAY_BUFFER, gridColorData.size() * sizeof(float), gridColorData.data(), GL_STATIC_DRAW);
+
+    // Render solid cube
+    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[0]);
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glVertexPointer(3, GL_FLOAT, 0, 0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[1]);
+    glEnableClientState(GL_COLOR_ARRAY);
+    glColorPointer(3, GL_FLOAT, 0, 0);
+
+    glDrawArrays(GL_QUADS, 0, vertexData.size() / 3);
+
+    // Render grid lines
+    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[2]);
+    glVertexPointer(3, GL_FLOAT, 0, 0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[3]);
+    glColorPointer(3, GL_FLOAT, 0, 0);
+
+    glDrawArrays(GL_LINES, 0, gridVertexData.size() / 3);
+
+    // Cleanup
+    glDisableClientState(GL_VERTEX_ARRAY);
+    glDisableClientState(GL_COLOR_ARRAY);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+void renderCubeWithGrid(float size, int gridDivisions = 4) {
+    float halfSize = size / 2.0f;
+    float step = size / gridDivisions;
+
+    vertexData.clear();
+    cubeColorData.clear();
+    gridVertexData.clear();
+    gridColorData.clear();
+
+    // Define vertices as float arrays
+    const float vertices[] = {
+        // Front face
+        -halfSize, -halfSize,  halfSize,
+         halfSize, -halfSize,  halfSize,
+         halfSize,  halfSize,  halfSize,
+        -halfSize,  halfSize,  halfSize,
+
+        // Back face
+        -halfSize, -halfSize, -halfSize,
+        -halfSize,  halfSize, -halfSize,
+         halfSize,  halfSize, -halfSize,
+         halfSize, -halfSize, -halfSize,
+
+         // Left face
+         -halfSize, -halfSize, -halfSize,
+         -halfSize, -halfSize,  halfSize,
+         -halfSize,  halfSize,  halfSize,
+         -halfSize,  halfSize, -halfSize,
+
+         // Right face
+          halfSize, -halfSize, -halfSize,
+          halfSize,  halfSize, -halfSize,
+          halfSize,  halfSize,  halfSize,
+          halfSize, -halfSize,  halfSize,
+
+          // Top face
+          -halfSize, halfSize, -halfSize,
+          -halfSize, halfSize,  halfSize,
+           halfSize, halfSize,  halfSize,
+           halfSize, halfSize, -halfSize,
+
+           // Bottom face
+           -halfSize, -halfSize, -halfSize,
+            halfSize, -halfSize, -halfSize,
+            halfSize, -halfSize,  halfSize,
+           -halfSize, -halfSize,  halfSize,
+
+           // Floor vertices
+           -halfSize, 0.0f, -halfSize,
+            halfSize, 0.0f, -halfSize,
+            halfSize, 0.0f, halfSize,
+           -halfSize, 0.0f, halfSize
+    };
+
+    // Add vertices to vector
+    for (int i = 0; i < sizeof(vertices) / sizeof(float); i += 3) {
+        vertexData.push_back(vertices[i]);
+        vertexData.push_back(vertices[i + 1]);
+        vertexData.push_back(vertices[i + 2]);
+
+        // Add uniform gray color for each vertex
+        cubeColorData.push_back(0.8f);  // Gray (R)
+        cubeColorData.push_back(0.8f);  // Gray (G)
+        cubeColorData.push_back(0.8f);  // Gray (B)
+    }
+
+    // Generate grid lines for each face
+    for (int face = 0; face < 7; face++) {
+        float originX, originY, originZ;
+        float dirX[3], dirY[3];
+
+        switch (face) {
+        case 0: // Front
+            originX = -halfSize; originY = -halfSize; originZ = halfSize;
+            dirX[0] = 1; dirX[1] = 0; dirX[2] = 0;
+            dirY[0] = 0; dirY[1] = 1; dirY[2] = 0;
+            break;
+        case 1: // Back
+            originX = -halfSize; originY = -halfSize; originZ = -halfSize;
+            dirX[0] = 1; dirX[1] = 0; dirX[2] = 0;
+            dirY[0] = 0; dirY[1] = 1; dirY[2] = 0;
+            break;
+        case 2: // Left
+            originX = -halfSize; originY = -halfSize; originZ = -halfSize;
+            dirX[0] = 0; dirX[1] = 0; dirX[2] = 1;
+            dirY[0] = 0; dirY[1] = 1; dirY[2] = 0;
+            break;
+        case 3: // Right
+            originX = halfSize; originY = -halfSize; originZ = -halfSize;
+            dirX[0] = 0; dirX[1] = 0; dirX[2] = 1;
+            dirY[0] = 0; dirY[1] = 1; dirY[2] = 0;
+            break;
+        case 4: // Top
+            originX = -halfSize; originY = halfSize; originZ = -halfSize;
+            dirX[0] = 1; dirX[1] = 0; dirX[2] = 0;
+            dirY[0] = 0; dirY[1] = 0; dirY[2] = 1;
+            break;
+        case 5: // Bottom
+            originX = -halfSize; originY = -halfSize; originZ = -halfSize;
+            dirX[0] = 1; dirX[1] = 0; dirX[2] = 0;
+            dirY[0] = 0; dirY[1] = 0; dirY[2] = 1;
+            break;
+        case 6: // Floor
+            originX = -halfSize; originY = 0.0f; originZ = -halfSize;
+            dirX[0] = 1; dirX[1] = 0; dirX[2] = 0;
+            dirY[0] = 0; dirY[1] = 0; dirY[2] = 1;
+            break;
+        }
+
+        // Draw grid lines
+        for (float i = 0; i <= gridDivisions; i++) {
+            float t = i * step;
+            float startX = originX + dirX[0] * t;
+            float startY = originY + dirX[1] * t;
+            float startZ = originZ + dirX[2] * t;
+            float endX = startX + dirY[0] * size;
+            float endY = startY + dirY[1] * size;
+            float endZ = startZ + dirY[2] * size;
+
+            // Add line vertices
+            gridVertexData.push_back(startX);
+            gridVertexData.push_back(startY);
+            gridVertexData.push_back(startZ);
+            gridVertexData.push_back(endX);
+            gridVertexData.push_back(endY);
+            gridVertexData.push_back(endZ);
+
+            // Add darker gray color for grid lines
+            for (int j = 0; j < 2; j++) {  // Two vertices per line
+                gridColorData.push_back(0.3f);  // Darker gray (R)
+                gridColorData.push_back(0.3f);  // Darker gray (G)
+                gridColorData.push_back(0.3f);  // Darker gray (B)
+            }
+
+            startX = originX + dirY[0] * t;
+            startY = originY + dirY[1] * t;
+            startZ = originZ + dirY[2] * t;
+            endX = startX + dirX[0] * size;
+            endY = startY + dirX[1] * size;
+            endZ = startZ + dirX[2] * size;
+
+            // Add line vertices
+            gridVertexData.push_back(startX);
+            gridVertexData.push_back(startY);
+            gridVertexData.push_back(startZ);
+            gridVertexData.push_back(endX);
+            gridVertexData.push_back(endY);
+            gridVertexData.push_back(endZ);
+
+            // Add colors for the second set of lines
+            for (int j = 0; j < 2; j++) {
+                gridColorData.push_back(0.3f);
+                gridColorData.push_back(0.3f);
+                gridColorData.push_back(0.3f);
+            }
+        }
+    }
+}
+
+    */
