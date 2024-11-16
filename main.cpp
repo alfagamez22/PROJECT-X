@@ -615,34 +615,67 @@ void renderCubeWithGrid(float size, int gridDivisions = 4) {
 
     Skybox::updateCubeVertices(size);
 
-    for (int i = 0; i < Skybox::globalCubeVertices.size(); i += 12) {
-        for (int j = 0; j < 4; j++) {
-            float x = Skybox::globalCubeVertices[i + j * 3];
-            float y = Skybox::globalCubeVertices[i + j * 3 + 1];
-            float z = Skybox::globalCubeVertices[i + j * 3 + 2];
+    // Front Wall
+    for (size_t i = 0; i < 12; i += 3) {
+        vertexData.push_back(Skybox::frontWallVertices[i]);
+        vertexData.push_back(Skybox::frontWallVertices[i + 1]);
+        vertexData.push_back(Skybox::frontWallVertices[i + 2]);
+        textureCoordData.push_back(0.0f);
+        textureCoordData.push_back(0.0f);
+    }
 
-            vertexData.push_back(x);
-            vertexData.push_back(y);
-            vertexData.push_back(z);
+    // Back Wall
+    for (size_t i = 0; i < 12; i += 3) {
+        vertexData.push_back(Skybox::backWallVertices[i]);
+        vertexData.push_back(Skybox::backWallVertices[i + 1]);
+        vertexData.push_back(Skybox::backWallVertices[i + 2]);
+        textureCoordData.push_back(0.0f);
+        textureCoordData.push_back(0.0f);
+    }
 
-            // Check if these vertices are part of the floor (y = 0)
-            if (y == 0.0f) {
-                // Add texture coordinates for floor
-                float texU = (x + size / 2) / size;  // Normalize x coordinate
-                float texV = (z + size / 2) / size;  // Normalize z coordinate
-                textureCoordData.push_back(texU);
-                textureCoordData.push_back(texV);
-            }
-            else {
-                // Add dummy texture coordinates for non-floor vertices
-                textureCoordData.push_back(1.0f);
-                textureCoordData.push_back(1.0f);
+    // Left Wall
+    for (size_t i = 0; i < 12; i += 3) {
+        vertexData.push_back(Skybox::leftWallVertices[i]);
+        vertexData.push_back(Skybox::leftWallVertices[i + 1]);
+        vertexData.push_back(Skybox::leftWallVertices[i + 2]);
+        textureCoordData.push_back(0.0f);
+        textureCoordData.push_back(0.0f);
+    }
 
-            }
-        }
+    // Right Wall
+    for (size_t i = 0; i < 12; i += 3) {
+        vertexData.push_back(Skybox::rightWallVertices[i]);
+        vertexData.push_back(Skybox::rightWallVertices[i + 1]);
+        vertexData.push_back(Skybox::rightWallVertices[i + 2]);
+        textureCoordData.push_back(0.0f);
+        textureCoordData.push_back(0.0f);
+    }
+
+    // Roof
+    for (size_t i = 0; i < 12; i += 3) {
+        vertexData.push_back(Skybox::roofVertices[i]);
+        vertexData.push_back(Skybox::roofVertices[i + 1]);
+        vertexData.push_back(Skybox::roofVertices[i + 2]);
+        textureCoordData.push_back(0.0f);
+        textureCoordData.push_back(0.0f);
+    }
+
+    // Floor with texture coordinates
+    for (size_t i = 0; i < 12; i += 3) {
+        float x = Skybox::floorVertices[i];
+        float y = Skybox::floorVertices[i + 1];
+        float z = Skybox::floorVertices[i + 2];
+
+        vertexData.push_back(x);
+        vertexData.push_back(y);
+        vertexData.push_back(z);
+
+        float texU = (x + size / 2) / size;
+        float texV = (z + size / 2) / size;
+        textureCoordData.push_back(texU);
+        textureCoordData.push_back(texV);
     }
 }
-
 
 
 void renderCubeMap() {
@@ -674,8 +707,8 @@ void renderCubeMap() {
 
     GLfloat lightPosition[] = { lightPos[0], lightPos[1], lightPos[2], 1.0f };
 
-    glEnable(GL_LIGHTING);
-    glEnable(GL_LIGHT0);
+    // glEnable(GL_LIGHTING);
+    // glEnable(GL_LIGHT0);
 
     GLfloat lightAmbient[] = { 0.5f, 0.5f, 0.5f, 1.0f };
     GLfloat lightDiffuse[] = { 0.5f, 0.5f, 0.5f, 1.0f };
