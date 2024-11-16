@@ -12,21 +12,23 @@
 #include <sstream>
 #include <vector>
 #include <algorithm>
+#include <random>
 
 #include <fstream>
 #include <ctime>
 #include <direct.h> //for _getcwd
 #include <iostream>
 
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
+// #include <glm/glm.hpp>
+// #include <glm/gtc/matrix_transform.hpp>
+// #include <glm/gtc/type_ptr.hpp>
 
 #include "textureloader.cpp" //texture method
 #include "interaction.h" //movement globals
 #include "particlesys.h" //particle system global var
 #include "cube.h" //cube coordinates
 #include "pyramid.h" //pyramid coords
+#include "skybox.h" //skybox float vertices
 
 using namespace std;
 
@@ -79,19 +81,82 @@ float lightY = 150.0f; //light height
 float lightSpeed = 0.05f;
 int currentCorner = 0;
 
+//CubeGrid perlin noise variable
+float persistence = 0.5f; // Controls detail persistence across octaves
+int octaves = 6; // Number of noise layers (more = more detail)
+float frequency = 0.02f; // Base frequency of the noise
+
+
 //for logging purposes
 bool resourcesInitialized = false;
 ofstream logFile;
 string logPath;
 
 vector<float> vertexData;
-vector<float> gridVertexData;
 vector<float> cubeColorData;
-vector<float> gridColorData;
+
 //particle system
 vector<Particle> particles;
 
+//texture coordinate data
+vector<float> textureCoordData;
 
+class PerlinNoise {
+private:
+    std::vector<int> p;
+
+public:
+    PerlinNoise() {
+        p.resize(512);
+        for (int i = 0; i < 256; i++) p[i] = i;
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::shuffle(p.begin(), p.begin() + 256, gen);
+        for (int i = 0; i < 256; i++) p[256 + i] = p[i];
+    }
+
+    double noise(double x, double y, double z) {
+        int X = (int)floor(x) & 255;
+        int Y = (int)floor(y) & 255;
+        int Z = (int)floor(z) & 255;
+
+        x -= floor(x);
+        y -= floor(y);
+        z -= floor(z);
+
+        double u = fade(x);
+        double v = fade(y);
+        double w = fade(z);
+
+        int A = p[X] + Y;
+        int AA = p[A] + Z;
+        int AB = p[A + 1] + Z;
+        int B = p[X + 1] + Y;
+        int BA = p[B] + Z;
+        int BB = p[B + 1] + Z;
+
+        return lerp(w, lerp(v, lerp(u, grad(p[AA], x, y, z),
+            grad(p[BA], x - 1, y, z)),
+            lerp(u, grad(p[AB], x, y - 1, z),
+                grad(p[BB], x - 1, y - 1, z))),
+            lerp(v, lerp(u, grad(p[AA + 1], x, y, z - 1),
+                grad(p[BA + 1], x - 1, y, z - 1)),
+                lerp(u, grad(p[AB + 1], x, y - 1, z - 1),
+                    grad(p[BB + 1], x - 1, y - 1, z - 1))));
+    }
+
+private:
+    double fade(double t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+    double lerp(double t, double a, double b) { return a + t * (b - a); }
+    double grad(int hash, double x, double y, double z) {
+        int h = hash & 15;
+        double u = h < 8 ? x : y;
+        double v = h < 4 ? y : h == 12 || h == 14 ? x : z;
+        return ((h & 1) == 0 ? u : -u) + ((h & 2) == 0 ? v : -v);
+    }
+};
+// Add this as a global variable
+PerlinNoise perlin;
 
 // Main display function
 int main(int argc, char** argv) {
@@ -167,7 +232,7 @@ void initGL() {
     // Enable texturing
     glEnable(GL_TEXTURE_2D);
 
-    textureID = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/doggo.jpg");  // Replace with your texture file
+    textureID = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/sand.png");  // Replace with your texture file
 
     atexit(cleanup);
 
@@ -370,214 +435,219 @@ void sphere3dVBO() {
     glBufferData(GL_ARRAY_BUFFER, sizeof(sphereColors), sphereColors, GL_STATIC_DRAW);
 }
 
-
 void renderCubeWithGridVBO() {
-    // Generate VBO IDs
-    glGenBuffers(4, renderCubeWithGridVBOs);
+    // Generate VBO IDs (now 3 for vertex, texture coords, and noise)
+    glGenBuffers(3, renderCubeWithGridVBOs);
 
-    // Upload cube vertex data
+    // Upload vertex data
     glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[0]);
     glBufferData(GL_ARRAY_BUFFER, vertexData.size() * sizeof(float), vertexData.data(), GL_STATIC_DRAW);
 
-    // Upload cube color data
+    // Upload texture coordinate data
     glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[1]);
-    glBufferData(GL_ARRAY_BUFFER, cubeColorData.size() * sizeof(float), cubeColorData.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, textureCoordData.size() * sizeof(float), textureCoordData.data(), GL_STATIC_DRAW);
 
-    // Upload grid vertex data
-    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[2]);
-    glBufferData(GL_ARRAY_BUFFER, gridVertexData.size() * sizeof(float), gridVertexData.data(), GL_STATIC_DRAW);
+    // Enable texture
+    glEnable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, textureID);
 
-    // Upload grid color data
-    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[3]);
-    glBufferData(GL_ARRAY_BUFFER, gridColorData.size() * sizeof(float), gridColorData.data(), GL_STATIC_DRAW);
-
-    // Render solid cube
+    // Render textured cube
     glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[0]);
     glEnableClientState(GL_VERTEX_ARRAY);
     glVertexPointer(3, GL_FLOAT, 0, 0);
 
     glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[1]);
-    glEnableClientState(GL_COLOR_ARRAY);
-    glColorPointer(3, GL_FLOAT, 0, 0);
+    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+    glTexCoordPointer(2, GL_FLOAT, 0, 0);
 
     glDrawArrays(GL_QUADS, 0, vertexData.size() / 3);
 
-    // Render grid lines
-    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[2]);
-    glVertexPointer(3, GL_FLOAT, 0, 0);
-
-    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[3]);
-    glColorPointer(3, GL_FLOAT, 0, 0);
-
-    glDrawArrays(GL_LINES, 0, gridVertexData.size() / 3);
-
     // Cleanup
     glDisableClientState(GL_VERTEX_ARRAY);
-    glDisableClientState(GL_COLOR_ARRAY);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    glDisable(GL_TEXTURE_2D);
 }
+
+// void renderCubeWithGridVBO() {
+//     // Generate VBO IDs
+//     glGenBuffers(2, renderCubeWithGridVBOs);
+
+//     // Upload cube vertex data
+//     glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[0]);
+//     glBufferData(GL_ARRAY_BUFFER, vertexData.size() * sizeof(float), vertexData.data(), GL_STATIC_DRAW);
+
+//     // Upload cube color data
+//     glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[1]);
+//     glBufferData(GL_ARRAY_BUFFER, cubeColorData.size() * sizeof(float), cubeColorData.data(), GL_STATIC_DRAW);
+
+//     // Render solid cube
+//     glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[0]);
+//     glEnableClientState(GL_VERTEX_ARRAY);
+//     glVertexPointer(3, GL_FLOAT, 0, 0);
+
+//     glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[1]);
+//     glEnableClientState(GL_COLOR_ARRAY);
+//     glColorPointer(3, GL_FLOAT, 0, 0);
+
+//     glDrawArrays(GL_QUADS, 0, vertexData.size() / 3);
+
+//     // Cleanup
+//     glDisableClientState(GL_VERTEX_ARRAY);
+//     glDisableClientState(GL_COLOR_ARRAY);
+//     //glBindBuffer(GL_ARRAY_BUFFER, 0);
+// }
+
+// Function to generate and update vertices
+
+// void renderCubeWithGrid(float size, int gridDivisions = 4) {
+//     float step = size / gridDivisions;
+
+//     vertexData.clear();
+//     cubeColorData.clear();
+//     Skybox::updateCubeVertices(size);
+//     // Use Skybox::globalCubeVertices to access the vertices
+//     for (int i = 0; i < Skybox::globalCubeVertices.size(); i += 3) {
+//         vertexData.push_back(Skybox::globalCubeVertices[i]);
+//         vertexData.push_back(Skybox::globalCubeVertices[i + 1]);
+//         vertexData.push_back(Skybox::globalCubeVertices[i + 2]);
+
+//         // cubeColorData.push_back(0.8f); //R
+//         // cubeColorData.push_back(0.8f); //G
+//         // cubeColorData.push_back(0.8f); //B
+//         // cubeColorData.push_back(1.0);
+
+//         cubeColorData.push_back(0.96f); //R
+//         cubeColorData.push_back(0.64f); //G
+//         cubeColorData.push_back(0.38f); //B
+//         cubeColorData.push_back(0.0);
+
+//         //0.96f, 0.64f, 0.38f, 1.0f
+//     }
+// }
+
+// void renderCubeWithGrid(float size, int gridDivisions = 4) {
+//     float step = size / gridDivisions;
+//     vertexData.clear();
+//     cubeColorData.clear();
+
+//     Skybox::updateCubeVertices(size);
+
+//     for (int i = 0; i < Skybox::globalCubeVertices.size(); i += 3) {
+//         float x = Skybox::globalCubeVertices[i];
+//         float y = Skybox::globalCubeVertices[i + 1];
+//         float z = Skybox::globalCubeVertices[i + 2];
+
+//         vertexData.push_back(x);
+//         vertexData.push_back(y);
+//         vertexData.push_back(z);
+
+//         // Generate Perlin noise value
+//         float noiseValue = 0.0f;
+//         float amplitude = 1.0f;
+//         float totalAmplitude = 0.0f;
+
+//         for (int oct = 0; oct < octaves; oct++) {
+//             float freq = frequency * pow(2, oct);
+//             float perlinValue = perlin.noise(x * freq, y * freq, z * freq);
+//             noiseValue += perlinValue * amplitude;
+//             totalAmplitude += amplitude;
+//             amplitude *= persistence;
+//         }
+
+//         noiseValue /= totalAmplitude;
+//         noiseValue = (noiseValue + 1.0f) * 0.5f;  // Normalize to 0-1
+
+//         // Desert sand colors with noise variation
+//        // Use noise value to modify base sand color
+//         cubeColorData.push_back(0.95f * (0.8f + 0.2f * noiseValue));  // R
+//         cubeColorData.push_back(0.87f * (0.8f + 0.2f * noiseValue));  // G
+//         cubeColorData.push_back(0.60f * (0.8f + 0.2f * noiseValue));  // B
+//         cubeColorData.push_back(1.0f);  // A
+//     }
+// }
+
+// void renderCubeWithGrid(float size, int gridDivisions = 4) {
+//     float step = size / gridDivisions;
+//     vertexData.clear();
+//     textureCoordData.clear();
+
+//     Skybox::updateCubeVertices(size);
+
+//     for (int i = 0; i < Skybox::globalCubeVertices.size(); i += 12) {
+//         for (int j = 0; j < 4; j++) {
+//             float x = Skybox::globalCubeVertices[i + j * 3];
+//             float y = Skybox::globalCubeVertices[i + j * 3 + 1];
+//             float z = Skybox::globalCubeVertices[i + j * 3 + 2];
+
+//             // Generate Perlin noise value
+//             float noiseValue = 0.0f;
+//             float amplitude = 1.0f;
+//             float totalAmplitude = 0.0f;
+
+//             for (int oct = 0; oct < octaves; oct++) {
+//                 float freq = frequency * pow(2, oct);
+//                 float perlinValue = perlin.noise(x * freq, y * freq, z * freq);
+//                 noiseValue += perlinValue * amplitude;
+//                 totalAmplitude += amplitude;
+//                 amplitude *= persistence;
+//             }
+
+//             noiseValue /= totalAmplitude;
+//             noiseValue = (noiseValue + 1.0f) * 0.5f;  // Normalize to 0-1
+
+//             vertexData.push_back(x);
+//             vertexData.push_back(y);
+//             vertexData.push_back(z);
+
+//             // Add texture coordinates with noise influence
+//             float texU = (float)(j % 2) + noiseValue * 0.1f;
+//             float texV = (float)(j / 2) + noiseValue * 0.1f;
+//             textureCoordData.push_back(texU);
+//             textureCoordData.push_back(texV);
+//         }
+//     }
+// }
+
 void renderCubeWithGrid(float size, int gridDivisions = 4) {
-    float halfSize = size / 2.0f;
     float step = size / gridDivisions;
-
     vertexData.clear();
-    cubeColorData.clear();
-    gridVertexData.clear();
-    gridColorData.clear();
+    textureCoordData.clear();
 
-    // Define vertices as float arrays
-    const float vertices[] = {
-        // Front face
-        -halfSize, -halfSize,  halfSize,
-         halfSize, -halfSize,  halfSize,
-         halfSize,  halfSize,  halfSize,
-        -halfSize,  halfSize,  halfSize,
+    Skybox::updateCubeVertices(size);
 
-        // Back face
-        -halfSize, -halfSize, -halfSize,
-        -halfSize,  halfSize, -halfSize,
-         halfSize,  halfSize, -halfSize,
-         halfSize, -halfSize, -halfSize,
+    for (int i = 0; i < Skybox::globalCubeVertices.size(); i += 12) {
+        for (int j = 0; j < 4; j++) {
+            float x = Skybox::globalCubeVertices[i + j * 3];
+            float y = Skybox::globalCubeVertices[i + j * 3 + 1];
+            float z = Skybox::globalCubeVertices[i + j * 3 + 2];
 
-         // Left face
-         -halfSize, -halfSize, -halfSize,
-         -halfSize, -halfSize,  halfSize,
-         -halfSize,  halfSize,  halfSize,
-         -halfSize,  halfSize, -halfSize,
+            vertexData.push_back(x);
+            vertexData.push_back(y);
+            vertexData.push_back(z);
 
-         // Right face
-          halfSize, -halfSize, -halfSize,
-          halfSize,  halfSize, -halfSize,
-          halfSize,  halfSize,  halfSize,
-          halfSize, -halfSize,  halfSize,
-
-          // Top face
-          -halfSize, halfSize, -halfSize,
-          -halfSize, halfSize,  halfSize,
-           halfSize, halfSize,  halfSize,
-           halfSize, halfSize, -halfSize,
-
-           // Bottom face
-           -halfSize, -halfSize, -halfSize,
-            halfSize, -halfSize, -halfSize,
-            halfSize, -halfSize,  halfSize,
-           -halfSize, -halfSize,  halfSize,
-
-           // Floor vertices
-           -halfSize, 0.0f, -halfSize,
-            halfSize, 0.0f, -halfSize,
-            halfSize, 0.0f, halfSize,
-           -halfSize, 0.0f, halfSize
-    };
-
-    // Add vertices to vector
-    for (int i = 0; i < sizeof(vertices) / sizeof(float); i += 3) {
-        vertexData.push_back(vertices[i]);
-        vertexData.push_back(vertices[i + 1]);
-        vertexData.push_back(vertices[i + 2]);
-
-        // Add uniform gray color for each vertex
-        cubeColorData.push_back(0.8f);  // Gray (R)
-        cubeColorData.push_back(0.8f);  // Gray (G)
-        cubeColorData.push_back(0.8f);  // Gray (B)
-    }
-
-    // Generate grid lines for each face
-    for (int face = 0; face < 7; face++) {
-        float originX, originY, originZ;
-        float dirX[3], dirY[3];
-
-        switch (face) {
-        case 0: // Front
-            originX = -halfSize; originY = -halfSize; originZ = halfSize;
-            dirX[0] = 1; dirX[1] = 0; dirX[2] = 0;
-            dirY[0] = 0; dirY[1] = 1; dirY[2] = 0;
-            break;
-        case 1: // Back
-            originX = -halfSize; originY = -halfSize; originZ = -halfSize;
-            dirX[0] = 1; dirX[1] = 0; dirX[2] = 0;
-            dirY[0] = 0; dirY[1] = 1; dirY[2] = 0;
-            break;
-        case 2: // Left
-            originX = -halfSize; originY = -halfSize; originZ = -halfSize;
-            dirX[0] = 0; dirX[1] = 0; dirX[2] = 1;
-            dirY[0] = 0; dirY[1] = 1; dirY[2] = 0;
-            break;
-        case 3: // Right
-            originX = halfSize; originY = -halfSize; originZ = -halfSize;
-            dirX[0] = 0; dirX[1] = 0; dirX[2] = 1;
-            dirY[0] = 0; dirY[1] = 1; dirY[2] = 0;
-            break;
-        case 4: // Top
-            originX = -halfSize; originY = halfSize; originZ = -halfSize;
-            dirX[0] = 1; dirX[1] = 0; dirX[2] = 0;
-            dirY[0] = 0; dirY[1] = 0; dirY[2] = 1;
-            break;
-        case 5: // Bottom
-            originX = -halfSize; originY = -halfSize; originZ = -halfSize;
-            dirX[0] = 1; dirX[1] = 0; dirX[2] = 0;
-            dirY[0] = 0; dirY[1] = 0; dirY[2] = 1;
-            break;
-        case 6: // Floor
-            originX = -halfSize; originY = 0.0f; originZ = -halfSize;
-            dirX[0] = 1; dirX[1] = 0; dirX[2] = 0;
-            dirY[0] = 0; dirY[1] = 0; dirY[2] = 1;
-            break;
-        }
-
-        // Draw grid lines
-        for (float i = 0; i <= gridDivisions; i++) {
-            float t = i * step;
-            float startX = originX + dirX[0] * t;
-            float startY = originY + dirX[1] * t;
-            float startZ = originZ + dirX[2] * t;
-            float endX = startX + dirY[0] * size;
-            float endY = startY + dirY[1] * size;
-            float endZ = startZ + dirY[2] * size;
-
-            // Add line vertices
-            gridVertexData.push_back(startX);
-            gridVertexData.push_back(startY);
-            gridVertexData.push_back(startZ);
-            gridVertexData.push_back(endX);
-            gridVertexData.push_back(endY);
-            gridVertexData.push_back(endZ);
-
-            // Add darker gray color for grid lines
-            for (int j = 0; j < 2; j++) {  // Two vertices per line
-                gridColorData.push_back(0.3f);  // Darker gray (R)
-                gridColorData.push_back(0.3f);  // Darker gray (G)
-                gridColorData.push_back(0.3f);  // Darker gray (B)
+            // Check if these vertices are part of the floor (y = 0)
+            if (y == 0.0f) {
+                // Add texture coordinates for floor
+                float texU = (x + size / 2) / size;  // Normalize x coordinate
+                float texV = (z + size / 2) / size;  // Normalize z coordinate
+                textureCoordData.push_back(texU);
+                textureCoordData.push_back(texV);
             }
+            else {
+                // Add dummy texture coordinates for non-floor vertices
+                textureCoordData.push_back(1.0f);
+                textureCoordData.push_back(1.0f);
 
-            startX = originX + dirY[0] * t;
-            startY = originY + dirY[1] * t;
-            startZ = originZ + dirY[2] * t;
-            endX = startX + dirX[0] * size;
-            endY = startY + dirX[1] * size;
-            endZ = startZ + dirX[2] * size;
-
-            // Add line vertices
-            gridVertexData.push_back(startX);
-            gridVertexData.push_back(startY);
-            gridVertexData.push_back(startZ);
-            gridVertexData.push_back(endX);
-            gridVertexData.push_back(endY);
-            gridVertexData.push_back(endZ);
-
-            // Add colors for the second set of lines
-            for (int j = 0; j < 2; j++) {
-                gridColorData.push_back(0.3f);
-                gridColorData.push_back(0.3f);
-                gridColorData.push_back(0.3f);
             }
         }
     }
 }
+
+
 
 void renderCubeMap() {
     float position[3] = { 0.0f, 16.0f, 0.0f };
-    float size = 1024.0f;
+    float size = 524.0f;
     int gridDivisions = 36;
     float halfSize = size / 2.0f;
 
@@ -702,8 +772,8 @@ void cleanupVBO() {
             else {
                 logMessage("Texture resources were not initialized or already deleted.\n");
             }
-            if (renderCubeWithGridVBOs[0] || renderCubeWithGridVBOs[1] || renderCubeWithGridVBOs[2] || renderCubeWithGridVBOs[3]) {
-                glDeleteBuffers(4, renderCubeWithGridVBOs);
+            if (renderCubeWithGridVBOs[0] || renderCubeWithGridVBOs[1]) {
+                glDeleteBuffers(2, renderCubeWithGridVBOs);
                 logMessage("Render Cube with Grid VBO resources successfully deleted.\n");
             }
             else {
@@ -719,7 +789,6 @@ void cleanupVBO() {
         logMessage("Resources are not initialized or have already been cleaned up.\n");
     }
 }
-
 void cleanup() {
     cleanupVBO();
     if (glutGetWindow()) {
@@ -1235,366 +1304,3 @@ void display() {
         angleCircle += 0.2f;
     }
 }
-
-/*
-global
-// void renderAnotherSphere3D(float radius, int segments, float angle, float xPos, float yPos, float zPos);
-display
-// renderAnotherSphere3D(1.0f, 10, angleCircle, 5.0f, 17.5f, 5.0f); //no vbo
-
-
-    void renderAnotherSphere3D(float radius, int segments, float angle, float xPos, float yPos, float zPos) {
-        // Arrays for vertices and colors
-        float sphereVertices[(segments + 1) * (segments + 1) * 3];
-        float sphereColors[(segments + 1) * (segments + 1) * 3];
-
-        int index = 0;
-        for (int lat = 0; lat <= segments; ++lat) {
-            float theta = lat * M_PI / segments;  // Latitude angle (from 0 to pi)
-            for (int lon = 0; lon <= segments; ++lon) {
-                float phi = lon * 2.0f * M_PI / segments; // Longitude angle (from 0 to 2pi)
-
-                // Calculate the x, y, z position of each vertex on the sphere
-                sphereVertices[index * 3] = radius * sin(theta) * cos(phi); // x
-                sphereVertices[index * 3 + 1] = radius * sin(theta) * sin(phi); // y
-                sphereVertices[index * 3 + 2] = radius * cos(theta); // z
-
-                // Set color for each vertex (simple gradient)
-                sphereColors[index * 3] = (float)lat / segments; // Red
-                sphereColors[index * 3 + 1] = (float)lon / segments; // Green
-                sphereColors[index * 3 + 2] = 0.5f; // Blue
-
-                ++index;
-            }
-        }
-
-        glPushMatrix();
-        // Position the sphere in 3D space using xPos, yPos, zPos
-        glTranslatef(xPos, yPos, zPos);
-
-        // Rotate the sphere for animation or effect
-        glRotatef(angle, 1.0f, 0.0f, 0.0f); // Rotate around X-axis
-        glRotatef(angle, 0.0f, 1.0f, 0.0f); // Rotate around Y-axis
-
-        glEnableClientState(GL_VERTEX_ARRAY);
-        glEnableClientState(GL_COLOR_ARRAY);
-
-        glVertexPointer(3, GL_FLOAT, 0, sphereVertices);
-        glColorPointer(3, GL_FLOAT, 0, sphereColors);
-
-        // Draw the solid sphere using GL_TRIANGLE_STRIP
-        for (int lat = 0; lat < segments; ++lat) {
-            for (int lon = 0; lon < segments; ++lon) {
-                // Get the 4 vertices of each quad (for each latitude-longitude pair)
-                int p1 = lat * (segments + 1) + lon;
-                int p2 = p1 + 1;
-                int p3 = (lat + 1) * (segments + 1) + lon;
-                int p4 = p3 + 1;
-
-                // Create two triangles for each quad
-                float vertices[6][3] = {
-                    {sphereVertices[p1 * 3], sphereVertices[p1 * 3 + 1], sphereVertices[p1 * 3 + 2]},
-                    {sphereVertices[p2 * 3], sphereVertices[p2 * 3 + 1], sphereVertices[p2 * 3 + 2]},
-                    {sphereVertices[p3 * 3], sphereVertices[p3 * 3 + 1], sphereVertices[p3 * 3 + 2]},
-                    {sphereVertices[p3 * 3], sphereVertices[p3 * 3 + 1], sphereVertices[p3 * 3 + 2]},
-                    {sphereVertices[p2 * 3], sphereVertices[p2 * 3 + 1], sphereVertices[p2 * 3 + 2]},
-                    {sphereVertices[p4 * 3], sphereVertices[p4 * 3 + 1], sphereVertices[p4 * 3 + 2]}
-                };
-
-                glBegin(GL_TRIANGLES);
-                for (int i = 0; i < 6; ++i) {
-                    glColor3fv(&sphereColors[(p1 + i) * 3]);
-                    glVertex3fv(vertices[i]);
-                }
-                glEnd();
-            }
-        }
-
-        glDisableClientState(GL_VERTEX_ARRAY);
-        glDisableClientState(GL_COLOR_ARRAY);
-
-        glPopMatrix();
-    }
-
-
-
-// void renderCubeMap() {
-//     glm::vec3 position(0.0f, 16.0f, 0.0f);
-//     float size = 1024.0f;
-//     int gridDivisions = 36;
-
-//     float halfSize = size / 2.0f;
-
-//     // Calculate corner-based light position
-//     float cornerX = halfSize * cos(lightAngle * M_PI / 180.0f);
-//     float cornerZ = halfSize * sin(lightAngle * M_PI / 180.0f);
-
-//     // Snap to nearest corner when within threshold
-//     if (fabs(cornerX) > 0.7 * halfSize) cornerX = (cornerX > 0) ? halfSize : -halfSize;
-//     if (fabs(cornerZ) > 0.7 * halfSize) cornerZ = (cornerZ > 0) ? halfSize : -halfSize;
-
-//     // Calculate moving light position
-//     float lightX = lightRadius * cos(lightAngle * M_PI / 180.0f);
-//     float lightZ = lightRadius * sin(lightAngle * M_PI / 180.0f);
-//     GLfloat lightPosition[] = { lightX, lightY + halfSize, lightZ, cornerZ, 1.0f };
-
-//     //enable lighting
-//     glEnable(GL_LIGHTING);
-//     glEnable(GL_LIGHT0);
-
-//     GLfloat lightAmbient[] = { 0.3f, 0.3f, 0.3f, 1.0f };
-//     GLfloat lightDiffuse[] = { 0.5f, 0.5f, 0.5f, 1.0f };
-//     GLfloat lightSpecular[] = { 1.0f, 1.0f, 1.0f, 1.0f };
-
-//     glLightfv(GL_LIGHT0, GL_POSITION, lightPosition);
-//     glLightfv(GL_LIGHT0, GL_AMBIENT, lightAmbient);
-//     glLightfv(GL_LIGHT0, GL_DIFFUSE, lightDiffuse);
-//     glLightfv(GL_LIGHT0, GL_SPECULAR, lightSpecular);
-
-//     // Set material properties
-//     GLfloat materialAmbient[] = { 0.2f, 0.2f, 0.2f, 1.0f };
-//     GLfloat materialDiffuse[] = { 0.3f, 0.3f, 0.3f, 1.0f };
-//     GLfloat materialSpecular[] = { 0.3f, 0.3f, 0.3f, 1.0f };
-//     GLfloat materialShininess[] = { 10.0f };
-
-//     glMaterialfv(GL_FRONT, GL_AMBIENT, materialAmbient);
-//     glMaterialfv(GL_FRONT, GL_DIFFUSE, materialDiffuse);
-//     glMaterialfv(GL_FRONT, GL_SPECULAR, materialSpecular);
-//     glMaterialfv(GL_FRONT, GL_SHININESS, materialShininess);
-
-//     // Generate vertex data
-//     renderCubeWithGrid(size, gridDivisions);
-
-//     glPushMatrix();
-//     {
-//         glm::mat4 model = glm::mat4(1.0f);
-//         model = glm::translate(model, position);
-//         glMultMatrixf(glm::value_ptr(model));
-
-//         glEnable(GL_POLYGON_OFFSET_FILL);
-//         glPolygonOffset(1.0f, 1.0f);
-
-//         renderCubeWithGridVBO();
-
-//         glDisable(GL_POLYGON_OFFSET_FILL);
-//     }
-//     glPopMatrix();
-
-
-//     // Disable lighting after rendering
-//     glDisable(GL_LIGHTING);
-//     glDisable(GL_LIGHT0);
-
-//     if (!isPaused) {
-//         lightAngle += lightSpeed;
-//         if (lightAngle >= 360.0f) lightAngle = 0.0f;
-//     }
-// }
-
-
-
-void renderCubeWithGridVBO() {
-    // Generate VBO IDs
-    glGenBuffers(4, renderCubeWithGridVBOs);
-
-    // Upload cube vertex data
-    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[0]);
-    glBufferData(GL_ARRAY_BUFFER, vertexData.size() * sizeof(float), vertexData.data(), GL_STATIC_DRAW);
-
-    // Upload cube color data
-    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[1]);
-    glBufferData(GL_ARRAY_BUFFER, cubeColorData.size() * sizeof(float), cubeColorData.data(), GL_STATIC_DRAW);
-
-    // Upload grid vertex data
-    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[2]);
-    glBufferData(GL_ARRAY_BUFFER, gridVertexData.size() * sizeof(float), gridVertexData.data(), GL_STATIC_DRAW);
-
-    // Upload grid color data
-    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[3]);
-    glBufferData(GL_ARRAY_BUFFER, gridColorData.size() * sizeof(float), gridColorData.data(), GL_STATIC_DRAW);
-
-    // Render solid cube
-    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[0]);
-    glEnableClientState(GL_VERTEX_ARRAY);
-    glVertexPointer(3, GL_FLOAT, 0, 0);
-
-    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[1]);
-    glEnableClientState(GL_COLOR_ARRAY);
-    glColorPointer(3, GL_FLOAT, 0, 0);
-
-    glDrawArrays(GL_QUADS, 0, vertexData.size() / 3);
-
-    // Render grid lines
-    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[2]);
-    glVertexPointer(3, GL_FLOAT, 0, 0);
-
-    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[3]);
-    glColorPointer(3, GL_FLOAT, 0, 0);
-
-    glDrawArrays(GL_LINES, 0, gridVertexData.size() / 3);
-
-    // Cleanup
-    glDisableClientState(GL_VERTEX_ARRAY);
-    glDisableClientState(GL_COLOR_ARRAY);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-}
-void renderCubeWithGrid(float size, int gridDivisions = 4) {
-    float halfSize = size / 2.0f;
-    float step = size / gridDivisions;
-
-    vertexData.clear();
-    cubeColorData.clear();
-    gridVertexData.clear();
-    gridColorData.clear();
-
-    // Define vertices as float arrays
-    const float vertices[] = {
-        // Front face
-        -halfSize, -halfSize,  halfSize,
-         halfSize, -halfSize,  halfSize,
-         halfSize,  halfSize,  halfSize,
-        -halfSize,  halfSize,  halfSize,
-
-        // Back face
-        -halfSize, -halfSize, -halfSize,
-        -halfSize,  halfSize, -halfSize,
-         halfSize,  halfSize, -halfSize,
-         halfSize, -halfSize, -halfSize,
-
-         // Left face
-         -halfSize, -halfSize, -halfSize,
-         -halfSize, -halfSize,  halfSize,
-         -halfSize,  halfSize,  halfSize,
-         -halfSize,  halfSize, -halfSize,
-
-         // Right face
-          halfSize, -halfSize, -halfSize,
-          halfSize,  halfSize, -halfSize,
-          halfSize,  halfSize,  halfSize,
-          halfSize, -halfSize,  halfSize,
-
-          // Top face
-          -halfSize, halfSize, -halfSize,
-          -halfSize, halfSize,  halfSize,
-           halfSize, halfSize,  halfSize,
-           halfSize, halfSize, -halfSize,
-
-           // Bottom face
-           -halfSize, -halfSize, -halfSize,
-            halfSize, -halfSize, -halfSize,
-            halfSize, -halfSize,  halfSize,
-           -halfSize, -halfSize,  halfSize,
-
-           // Floor vertices
-           -halfSize, 0.0f, -halfSize,
-            halfSize, 0.0f, -halfSize,
-            halfSize, 0.0f, halfSize,
-           -halfSize, 0.0f, halfSize
-    };
-
-    // Add vertices to vector
-    for (int i = 0; i < sizeof(vertices) / sizeof(float); i += 3) {
-        vertexData.push_back(vertices[i]);
-        vertexData.push_back(vertices[i + 1]);
-        vertexData.push_back(vertices[i + 2]);
-
-        // Add uniform gray color for each vertex
-        cubeColorData.push_back(0.8f);  // Gray (R)
-        cubeColorData.push_back(0.8f);  // Gray (G)
-        cubeColorData.push_back(0.8f);  // Gray (B)
-    }
-
-    // Generate grid lines for each face
-    for (int face = 0; face < 7; face++) {
-        float originX, originY, originZ;
-        float dirX[3], dirY[3];
-
-        switch (face) {
-        case 0: // Front
-            originX = -halfSize; originY = -halfSize; originZ = halfSize;
-            dirX[0] = 1; dirX[1] = 0; dirX[2] = 0;
-            dirY[0] = 0; dirY[1] = 1; dirY[2] = 0;
-            break;
-        case 1: // Back
-            originX = -halfSize; originY = -halfSize; originZ = -halfSize;
-            dirX[0] = 1; dirX[1] = 0; dirX[2] = 0;
-            dirY[0] = 0; dirY[1] = 1; dirY[2] = 0;
-            break;
-        case 2: // Left
-            originX = -halfSize; originY = -halfSize; originZ = -halfSize;
-            dirX[0] = 0; dirX[1] = 0; dirX[2] = 1;
-            dirY[0] = 0; dirY[1] = 1; dirY[2] = 0;
-            break;
-        case 3: // Right
-            originX = halfSize; originY = -halfSize; originZ = -halfSize;
-            dirX[0] = 0; dirX[1] = 0; dirX[2] = 1;
-            dirY[0] = 0; dirY[1] = 1; dirY[2] = 0;
-            break;
-        case 4: // Top
-            originX = -halfSize; originY = halfSize; originZ = -halfSize;
-            dirX[0] = 1; dirX[1] = 0; dirX[2] = 0;
-            dirY[0] = 0; dirY[1] = 0; dirY[2] = 1;
-            break;
-        case 5: // Bottom
-            originX = -halfSize; originY = -halfSize; originZ = -halfSize;
-            dirX[0] = 1; dirX[1] = 0; dirX[2] = 0;
-            dirY[0] = 0; dirY[1] = 0; dirY[2] = 1;
-            break;
-        case 6: // Floor
-            originX = -halfSize; originY = 0.0f; originZ = -halfSize;
-            dirX[0] = 1; dirX[1] = 0; dirX[2] = 0;
-            dirY[0] = 0; dirY[1] = 0; dirY[2] = 1;
-            break;
-        }
-
-        // Draw grid lines
-        for (float i = 0; i <= gridDivisions; i++) {
-            float t = i * step;
-            float startX = originX + dirX[0] * t;
-            float startY = originY + dirX[1] * t;
-            float startZ = originZ + dirX[2] * t;
-            float endX = startX + dirY[0] * size;
-            float endY = startY + dirY[1] * size;
-            float endZ = startZ + dirY[2] * size;
-
-            // Add line vertices
-            gridVertexData.push_back(startX);
-            gridVertexData.push_back(startY);
-            gridVertexData.push_back(startZ);
-            gridVertexData.push_back(endX);
-            gridVertexData.push_back(endY);
-            gridVertexData.push_back(endZ);
-
-            // Add darker gray color for grid lines
-            for (int j = 0; j < 2; j++) {  // Two vertices per line
-                gridColorData.push_back(0.3f);  // Darker gray (R)
-                gridColorData.push_back(0.3f);  // Darker gray (G)
-                gridColorData.push_back(0.3f);  // Darker gray (B)
-            }
-
-            startX = originX + dirY[0] * t;
-            startY = originY + dirY[1] * t;
-            startZ = originZ + dirY[2] * t;
-            endX = startX + dirX[0] * size;
-            endY = startY + dirX[1] * size;
-            endZ = startZ + dirX[2] * size;
-
-            // Add line vertices
-            gridVertexData.push_back(startX);
-            gridVertexData.push_back(startY);
-            gridVertexData.push_back(startZ);
-            gridVertexData.push_back(endX);
-            gridVertexData.push_back(endY);
-            gridVertexData.push_back(endZ);
-
-            // Add colors for the second set of lines
-            for (int j = 0; j < 2; j++) {
-                gridColorData.push_back(0.3f);
-                gridColorData.push_back(0.3f);
-                gridColorData.push_back(0.3f);
-            }
-        }
-    }
-}
-
-    */
