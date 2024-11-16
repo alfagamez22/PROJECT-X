@@ -146,6 +146,13 @@ struct SpawnArea {
 SpawnArea spawnArea;
 vector<Particle> particles;
 
+// Add these global variables at the top for rendercubegrid
+float lightAngle = 89.0f;
+float lightRadius = 100.0f;
+float lightY = 200.0f; //light height
+float lightSpeed = 0.0f;
+int currentCorner = 0;
+
 //for logging purposes
 bool resourcesInitialized = false;
 ofstream logFile;
@@ -155,6 +162,12 @@ string logPath;
 //Initialize VBOs
 GLuint pyramidVBOs[2], sphere3DVBOs[2], cubeVBOs[2];
 GLuint textureID;
+GLuint renderCubeWithGridVBOs[4];
+
+vector<float> vertexData;
+vector<float> gridVertexData;
+vector<float> cubeColorData;
+vector<float> gridColorData;
 
 // Pyramid vertices and colors
 // Vertex and color arrays for the pyramid
@@ -400,10 +413,6 @@ void renderCube() {
 
     glPopMatrix();
 }
-
-
-
-
 void cubeVBO() {
     glGenBuffers(2, cubeVBOs);
 
@@ -442,6 +451,7 @@ void renderPyramid() {
 
     glPopMatrix();
 }
+
 void pyramidVBO() {
     // Pyramid VBO setup
     glGenBuffers(2, pyramidVBOs);
@@ -449,7 +459,6 @@ void pyramidVBO() {
     // Pyramid vertex VBO
     glBindBuffer(GL_ARRAY_BUFFER, pyramidVBOs[0]);
     glBufferData(GL_ARRAY_BUFFER, sizeof(pyramidVertices), pyramidVertices, GL_STATIC_DRAW);
-
     // Pyramid color VBO
     glBindBuffer(GL_ARRAY_BUFFER, pyramidVBOs[1]);
     glBufferData(GL_ARRAY_BUFFER, sizeof(pyramidColors), pyramidColors, GL_STATIC_DRAW);
@@ -469,6 +478,7 @@ void renderSphere3D(float radius, int segments, float angle, float xPos, float y
     // Bind VBOs and set up pointers
     glBindBuffer(GL_ARRAY_BUFFER, sphere3DVBOs[0]);
     glVertexPointer(3, GL_FLOAT, 0, 0);
+
     glBindBuffer(GL_ARRAY_BUFFER, sphere3DVBOs[1]);
     glColorPointer(3, GL_FLOAT, 0, 0);
 
@@ -543,83 +553,207 @@ void sphere3dVBO() {
 }
 
 
-void renderAnotherSphere3D(float radius, int segments, float angle, float xPos, float yPos, float zPos) {
-    // Arrays for vertices and colors
-    float sphereVertices[(segments + 1) * (segments + 1) * 3];
-    float sphereColors[(segments + 1) * (segments + 1) * 3];
+void renderCubeWithGridVBO() {
+    // Generate VBO IDs
+    glGenBuffers(4, renderCubeWithGridVBOs);
 
-    int index = 0;
-    for (int lat = 0; lat <= segments; ++lat) {
-        float theta = lat * M_PI / segments;  // Latitude angle (from 0 to pi)
-        for (int lon = 0; lon <= segments; ++lon) {
-            float phi = lon * 2.0f * M_PI / segments; // Longitude angle (from 0 to 2pi)
+    // Upload cube vertex data
+    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[0]);
+    glBufferData(GL_ARRAY_BUFFER, vertexData.size() * sizeof(float), vertexData.data(), GL_STATIC_DRAW);
 
-            // Calculate the x, y, z position of each vertex on the sphere
-            sphereVertices[index * 3] = radius * sin(theta) * cos(phi); // x
-            sphereVertices[index * 3 + 1] = radius * sin(theta) * sin(phi); // y
-            sphereVertices[index * 3 + 2] = radius * cos(theta); // z
+    // Upload cube color data
+    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[1]);
+    glBufferData(GL_ARRAY_BUFFER, cubeColorData.size() * sizeof(float), cubeColorData.data(), GL_STATIC_DRAW);
 
-            // Set color for each vertex (simple gradient)
-            sphereColors[index * 3] = (float)lat / segments; // Red
-            sphereColors[index * 3 + 1] = (float)lon / segments; // Green
-            sphereColors[index * 3 + 2] = 0.5f; // Blue
+    // Upload grid vertex data
+    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[2]);
+    glBufferData(GL_ARRAY_BUFFER, gridVertexData.size() * sizeof(float), gridVertexData.data(), GL_STATIC_DRAW);
 
-            ++index;
-        }
-    }
+    // Upload grid color data
+    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[3]);
+    glBufferData(GL_ARRAY_BUFFER, gridColorData.size() * sizeof(float), gridColorData.data(), GL_STATIC_DRAW);
 
-    glPushMatrix();
-    // Position the sphere in 3D space using xPos, yPos, zPos
-    glTranslatef(xPos, yPos, zPos);
-
-    // Rotate the sphere for animation or effect
-    glRotatef(angle, 1.0f, 0.0f, 0.0f); // Rotate around X-axis
-    glRotatef(angle, 0.0f, 1.0f, 0.0f); // Rotate around Y-axis
-
+    // Render solid cube
+    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[0]);
     glEnableClientState(GL_VERTEX_ARRAY);
+    glVertexPointer(3, GL_FLOAT, 0, 0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[1]);
     glEnableClientState(GL_COLOR_ARRAY);
+    glColorPointer(3, GL_FLOAT, 0, 0);
 
-    glVertexPointer(3, GL_FLOAT, 0, sphereVertices);
-    glColorPointer(3, GL_FLOAT, 0, sphereColors);
+    glDrawArrays(GL_QUADS, 0, vertexData.size() / 3);
 
-    // Draw the solid sphere using GL_TRIANGLE_STRIP
-    for (int lat = 0; lat < segments; ++lat) {
-        for (int lon = 0; lon < segments; ++lon) {
-            // Get the 4 vertices of each quad (for each latitude-longitude pair)
-            int p1 = lat * (segments + 1) + lon;
-            int p2 = p1 + 1;
-            int p3 = (lat + 1) * (segments + 1) + lon;
-            int p4 = p3 + 1;
+    // Render grid lines
+    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[2]);
+    glVertexPointer(3, GL_FLOAT, 0, 0);
 
-            // Create two triangles for each quad
-            float vertices[6][3] = {
-                {sphereVertices[p1 * 3], sphereVertices[p1 * 3 + 1], sphereVertices[p1 * 3 + 2]},
-                {sphereVertices[p2 * 3], sphereVertices[p2 * 3 + 1], sphereVertices[p2 * 3 + 2]},
-                {sphereVertices[p3 * 3], sphereVertices[p3 * 3 + 1], sphereVertices[p3 * 3 + 2]},
-                {sphereVertices[p3 * 3], sphereVertices[p3 * 3 + 1], sphereVertices[p3 * 3 + 2]},
-                {sphereVertices[p2 * 3], sphereVertices[p2 * 3 + 1], sphereVertices[p2 * 3 + 2]},
-                {sphereVertices[p4 * 3], sphereVertices[p4 * 3 + 1], sphereVertices[p4 * 3 + 2]}
-            };
+    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[3]);
+    glColorPointer(3, GL_FLOAT, 0, 0);
 
-            glBegin(GL_TRIANGLES);
-            for (int i = 0; i < 6; ++i) {
-                glColor3fv(&sphereColors[(p1 + i) * 3]);
-                glVertex3fv(vertices[i]);
-            }
-            glEnd();
-        }
-    }
+    glDrawArrays(GL_LINES, 0, gridVertexData.size() / 3);
 
+    // Cleanup
     glDisableClientState(GL_VERTEX_ARRAY);
     glDisableClientState(GL_COLOR_ARRAY);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+void renderCubeWithGrid(float size, int gridDivisions = 4) {
+    float halfSize = size / 2.0f;
+    float step = size / gridDivisions;
 
-    glPopMatrix();
+    vertexData.clear();
+    cubeColorData.clear();
+    gridVertexData.clear();
+    gridColorData.clear();
+
+    // Define vertices using glm::vec3
+    vector<glm::vec3> vertices = {
+        // Front face
+        glm::vec3(-halfSize, -halfSize,  halfSize),
+        glm::vec3(halfSize, -halfSize,  halfSize),
+        glm::vec3(halfSize,  halfSize,  halfSize),
+        glm::vec3(-halfSize,  halfSize,  halfSize),
+
+        // Back face
+        glm::vec3(-halfSize, -halfSize, -halfSize),
+        glm::vec3(-halfSize,  halfSize, -halfSize),
+        glm::vec3(halfSize,  halfSize, -halfSize),
+        glm::vec3(halfSize, -halfSize, -halfSize),
+
+        // Left face
+        glm::vec3(-halfSize, -halfSize, -halfSize),
+        glm::vec3(-halfSize, -halfSize,  halfSize),
+        glm::vec3(-halfSize,  halfSize,  halfSize),
+        glm::vec3(-halfSize,  halfSize, -halfSize),
+
+        // Right face
+        glm::vec3(halfSize, -halfSize, -halfSize),
+        glm::vec3(halfSize,  halfSize, -halfSize),
+        glm::vec3(halfSize,  halfSize,  halfSize),
+        glm::vec3(halfSize, -halfSize,  halfSize),
+
+        // Top face
+        glm::vec3(-halfSize, halfSize, -halfSize),
+        glm::vec3(-halfSize, halfSize,  halfSize),
+        glm::vec3(halfSize, halfSize,  halfSize),
+        glm::vec3(halfSize, halfSize, -halfSize),
+
+        // Bottom face
+        glm::vec3(-halfSize, -halfSize, -halfSize),
+        glm::vec3(halfSize, -halfSize, -halfSize),
+        glm::vec3(halfSize, -halfSize,  halfSize),
+        glm::vec3(-halfSize, -halfSize,  halfSize),
+
+        // Floor vertices
+        glm::vec3(-halfSize, 0.0f, -halfSize),
+        glm::vec3(halfSize, 0.0f, -halfSize),
+        glm::vec3(halfSize, 0.0f, halfSize),
+        glm::vec3(-halfSize, 0.0f, halfSize)
+    };
+
+    // Convert vertices to flat array
+    for (const auto& vertex : vertices) {
+        vertexData.push_back(vertex.x);
+        vertexData.push_back(vertex.y);
+        vertexData.push_back(vertex.z);
+
+        // Add uniform gray color for each vertex
+        cubeColorData.push_back(0.8f);  // Gray (R)
+        cubeColorData.push_back(0.8f);  // Gray (G)
+        cubeColorData.push_back(0.8f);  // Gray (B)
+    }
+
+    // Generate grid lines for each face
+    for (int face = 0; face < 7; face++) {
+        glm::vec3 origin, dirX, dirY;
+
+        switch (face) {
+        case 0: // Front
+            origin = glm::vec3(-halfSize, -halfSize, halfSize);
+            dirX = glm::vec3(1, 0, 0);
+            dirY = glm::vec3(0, 1, 0);
+            break;
+        case 1: // Back
+            origin = glm::vec3(-halfSize, -halfSize, -halfSize);
+            dirX = glm::vec3(1, 0, 0);
+            dirY = glm::vec3(0, 1, 0);
+            break;
+        case 2: // Left
+            origin = glm::vec3(-halfSize, -halfSize, -halfSize);
+            dirX = glm::vec3(0, 0, 1);
+            dirY = glm::vec3(0, 1, 0);
+            break;
+        case 3: // Right
+            origin = glm::vec3(halfSize, -halfSize, -halfSize);
+            dirX = glm::vec3(0, 0, 1);
+            dirY = glm::vec3(0, 1, 0);
+            break;
+        case 4: // Top
+            origin = glm::vec3(-halfSize, halfSize, -halfSize);
+            dirX = glm::vec3(1, 0, 0);
+            dirY = glm::vec3(0, 0, 1);
+            break;
+        case 5: // Bottom
+            origin = glm::vec3(-halfSize, -halfSize, -halfSize);
+            dirX = glm::vec3(1, 0, 0);
+            dirY = glm::vec3(0, 0, 1);
+            break;
+        case 6: // Floor
+            origin = glm::vec3(-halfSize, 0.0f, -halfSize);
+            dirX = glm::vec3(1, 0, 0);
+            dirY = glm::vec3(0, 0, 1);
+            break;
+        }
+
+        // Draw grid lines
+        for (float i = 0; i <= gridDivisions; i++) {
+            float t = i * step;
+            glm::vec3 start = origin + dirX * t;
+            glm::vec3 end = start + dirY * size;
+
+            // Add line vertices
+            gridVertexData.push_back(start.x);
+            gridVertexData.push_back(start.y);
+            gridVertexData.push_back(start.z);
+            gridVertexData.push_back(end.x);
+            gridVertexData.push_back(end.y);
+            gridVertexData.push_back(end.z);
+
+            // Add darker gray color for grid lines
+            for (int j = 0; j < 2; j++) {  // Two vertices per line
+                gridColorData.push_back(0.3f);  // Darker gray (R)
+                gridColorData.push_back(0.3f);  // Darker gray (G)
+                gridColorData.push_back(0.3f);  // Darker gray (B)
+            }
+
+            start = origin + dirY * t;
+            end = start + dirX * size;
+
+            // Add line vertices
+            gridVertexData.push_back(start.x);
+            gridVertexData.push_back(start.y);
+            gridVertexData.push_back(start.z);
+            gridVertexData.push_back(end.x);
+            gridVertexData.push_back(end.y);
+            gridVertexData.push_back(end.z);
+
+            // Add darker gray color for grid lines
+            for (int j = 0; j < 2; j++) {  // Two vertices per line
+                gridColorData.push_back(0.3f);  // Darker gray (R)
+                gridColorData.push_back(0.3f);  // Darker gray (G)
+                gridColorData.push_back(0.3f);  // Darker gray (B)
+            }
+        }
+    }
+
 }
 
 void initVBOs() {
     cubeVBO();
     pyramidVBO();
     sphere3dVBO();
+    renderCubeWithGridVBO();
 
     // Unbind buffer
     glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -661,6 +795,13 @@ void cleanupVBO() {
             }
             else {
                 logMessage("Texture resources were not initialized or already deleted.\n");
+            }
+            if (renderCubeWithGridVBOs[0] || renderCubeWithGridVBOs[1] || renderCubeWithGridVBOs[2] || renderCubeWithGridVBOs[3]) {
+                glDeleteBuffers(4, renderCubeWithGridVBOs);
+                logMessage("Render Cube with Grid VBO resources successfully deleted.\n");
+            }
+            else {
+                logMessage("Render Cube with Grid VBO resources were not initialized or already deleted.\n");
             }
             resourcesInitialized = false;  // Mark resources as cleaned up
         }
@@ -1008,155 +1149,152 @@ void update() {
     renderParticles();
 }
 
-void renderCubeWithGrid(float size, int gridDivisions = 4) {
-    float halfSize = size / 2.0f;
-    float step = size / gridDivisions;
-
-    // Define vertices using glm::vec3
-    vector<glm::vec3> vertices = {
-        // Front face
-        glm::vec3(-halfSize, -halfSize,  halfSize),
-        glm::vec3(halfSize, -halfSize,  halfSize),
-        glm::vec3(halfSize,  halfSize,  halfSize),
-        glm::vec3(-halfSize,  halfSize,  halfSize),
-
-        // Back face
-        glm::vec3(-halfSize, -halfSize, -halfSize),
-        glm::vec3(-halfSize,  halfSize, -halfSize),
-        glm::vec3(halfSize,  halfSize, -halfSize),
-        glm::vec3(halfSize, -halfSize, -halfSize),
-
-        // Left face
-        glm::vec3(-halfSize, -halfSize, -halfSize),
-        glm::vec3(-halfSize, -halfSize,  halfSize),
-        glm::vec3(-halfSize,  halfSize,  halfSize),
-        glm::vec3(-halfSize,  halfSize, -halfSize),
-
-        // Right face
-        glm::vec3(halfSize, -halfSize, -halfSize),
-        glm::vec3(halfSize,  halfSize, -halfSize),
-        glm::vec3(halfSize,  halfSize,  halfSize),
-        glm::vec3(halfSize, -halfSize,  halfSize),
-
-        // Top face
-        glm::vec3(-halfSize, halfSize, -halfSize),
-        glm::vec3(-halfSize, halfSize,  halfSize),
-        glm::vec3(halfSize, halfSize,  halfSize),
-        glm::vec3(halfSize, halfSize, -halfSize),
-
-        // Bottom face
-        glm::vec3(-halfSize, -halfSize, -halfSize),
-        glm::vec3(halfSize, -halfSize, -halfSize),
-        glm::vec3(halfSize, -halfSize,  halfSize),
-        glm::vec3(-halfSize, -halfSize,  halfSize),
-
-        // Floor vertices
-        glm::vec3(-halfSize, 0.0f, -halfSize),
-        glm::vec3(halfSize, 0.0f, -halfSize),
-        glm::vec3(halfSize, 0.0f, halfSize),
-        glm::vec3(-halfSize, 0.0f, halfSize)
-    };
-
-    // Render solid cube
-    glBegin(GL_QUADS);
-    glColor3f(0.5f, 0.5f, 0.5f);
-
-    for (const auto& vertex : vertices) {
-        glVertex3f(vertex.x, vertex.y, vertex.z);
-    }
-    glEnd();
-
-    // Render grid lines
-    glBegin(GL_LINES);
-    glColor3f(0.0f, 0.0f, 0.0f);  // Black grid lines
-
-    // Generate grid lines for each face
-    for (int face = 0; face < 7; face++) {
-        glm::vec3 origin, dirX, dirY;
-
-        switch (face) {
-        case 0: // Front
-            origin = glm::vec3(-halfSize, -halfSize, halfSize);
-            dirX = glm::vec3(1, 0, 0);
-            dirY = glm::vec3(0, 1, 0);
-            break;
-        case 1: // Back
-            origin = glm::vec3(-halfSize, -halfSize, -halfSize);
-            dirX = glm::vec3(1, 0, 0);
-            dirY = glm::vec3(0, 1, 0);
-            break;
-        case 2: // Left
-            origin = glm::vec3(-halfSize, -halfSize, -halfSize);
-            dirX = glm::vec3(0, 0, 1);
-            dirY = glm::vec3(0, 1, 0);
-            break;
-        case 3: // Right
-            origin = glm::vec3(halfSize, -halfSize, -halfSize);
-            dirX = glm::vec3(0, 0, 1);
-            dirY = glm::vec3(0, 1, 0);
-            break;
-        case 4: // Top
-            origin = glm::vec3(-halfSize, halfSize, -halfSize);
-            dirX = glm::vec3(1, 0, 0);
-            dirY = glm::vec3(0, 0, 1);
-            break;
-        case 5: // Bottom
-            origin = glm::vec3(-halfSize, -halfSize, -halfSize);
-            dirX = glm::vec3(1, 0, 0);
-            dirY = glm::vec3(0, 0, 1);
-            break;
-        case 6: // Floor
-            origin = glm::vec3(-halfSize, 0.0f, -halfSize);
-            dirX = glm::vec3(1, 0, 0);
-            dirY = glm::vec3(0, 0, 1);
-            break;
-        }
-
-        // Draw grid lines
-        for (float i = 0; i <= gridDivisions; i++) {
-            float t = i * step;
-            glm::vec3 start = origin + dirX * t;
-            glm::vec3 end = start + dirY * size;
-            glVertex3f(start.x, start.y, start.z);
-            glVertex3f(end.x, end.y, end.z);
-
-            start = origin + dirY * t;
-            end = start + dirX * size;
-            glVertex3f(start.x, start.y, start.z);
-            glVertex3f(end.x, end.y, end.z);
-        }
-    }
-    glEnd();
-}
 
 void renderCubeMap() {
-    // Position using GLM vectors
     glm::vec3 position(0.0f, 16.0f, 0.0f);
     float size = 1024.0f;
     int gridDivisions = 36;
 
+    float halfSize = size / 2.0f;
+
+    // Calculate corner-based light position
+    float cornerX = halfSize * cos(lightAngle * M_PI / 180.0f);
+    float cornerZ = halfSize * sin(lightAngle * M_PI / 180.0f);
+
+    // Snap to nearest corner when within threshold
+    if (fabs(cornerX) > 0.7 * halfSize) cornerX = (cornerX > 0) ? halfSize : -halfSize;
+    if (fabs(cornerZ) > 0.7 * halfSize) cornerZ = (cornerZ > 0) ? halfSize : -halfSize;
+
+    // Calculate moving light position
+    float lightX = lightRadius * cos(lightAngle * M_PI / 180.0f);
+    float lightZ = lightRadius * sin(lightAngle * M_PI / 180.0f);
+    GLfloat lightPosition[] = { lightX, lightY + halfSize, lightZ, cornerZ, 1.0f };
+
+    //enable lighting
+    glEnable(GL_LIGHTING);
+    glEnable(GL_LIGHT0);
+
+    GLfloat lightAmbient[] = { 0.3f, 0.3f, 0.3f, 1.0f };
+    GLfloat lightDiffuse[] = { 0.5f, 0.5f, 0.5f, 1.0f };
+    GLfloat lightSpecular[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+    glLightfv(GL_LIGHT0, GL_POSITION, lightPosition);
+    glLightfv(GL_LIGHT0, GL_AMBIENT, lightAmbient);
+    glLightfv(GL_LIGHT0, GL_DIFFUSE, lightDiffuse);
+    glLightfv(GL_LIGHT0, GL_SPECULAR, lightSpecular);
+
+    // Set material properties
+    GLfloat materialAmbient[] = { 0.2f, 0.2f, 0.2f, 1.0f };
+    GLfloat materialDiffuse[] = { 0.3f, 0.3f, 0.3f, 1.0f };
+    GLfloat materialSpecular[] = { 0.3f, 0.3f, 0.3f, 1.0f };
+    GLfloat materialShininess[] = { 10.0f };
+
+    glMaterialfv(GL_FRONT, GL_AMBIENT, materialAmbient);
+    glMaterialfv(GL_FRONT, GL_DIFFUSE, materialDiffuse);
+    glMaterialfv(GL_FRONT, GL_SPECULAR, materialSpecular);
+    glMaterialfv(GL_FRONT, GL_SHININESS, materialShininess);
+
+    // Generate vertex data
+    renderCubeWithGrid(size, gridDivisions);
+
     glPushMatrix();
     {
-        // Create transformation matrix
         glm::mat4 model = glm::mat4(1.0f);
         model = glm::translate(model, position);
-
-        // Optional rotation
-        // model = glm::rotate(model, glm::radians(rotationAngle), glm::vec3(0.1f, 1.0f, 0.1f));
-
-        // Apply transformation
         glMultMatrixf(glm::value_ptr(model));
 
         glEnable(GL_POLYGON_OFFSET_FILL);
         glPolygonOffset(1.0f, 1.0f);
 
-        renderCubeWithGrid(size, gridDivisions);
+        renderCubeWithGridVBO();
 
         glDisable(GL_POLYGON_OFFSET_FILL);
     }
     glPopMatrix();
+
+
+    // Disable lighting after rendering
+    glDisable(GL_LIGHTING);
+    glDisable(GL_LIGHT0);
+
+    if (!isPaused) {
+        lightAngle += lightSpeed;
+        if (lightAngle >= 360.0f) lightAngle = 0.0f;
+    }
 }
 
+void renderAnotherSphere3D(float radius, int segments, float angle, float xPos, float yPos, float zPos) {
+    // Arrays for vertices and colors
+    float sphereVertices[(segments + 1) * (segments + 1) * 3];
+    float sphereColors[(segments + 1) * (segments + 1) * 3];
+
+    int index = 0;
+    for (int lat = 0; lat <= segments; ++lat) {
+        float theta = lat * M_PI / segments;  // Latitude angle (from 0 to pi)
+        for (int lon = 0; lon <= segments; ++lon) {
+            float phi = lon * 2.0f * M_PI / segments; // Longitude angle (from 0 to 2pi)
+
+            // Calculate the x, y, z position of each vertex on the sphere
+            sphereVertices[index * 3] = radius * sin(theta) * cos(phi); // x
+            sphereVertices[index * 3 + 1] = radius * sin(theta) * sin(phi); // y
+            sphereVertices[index * 3 + 2] = radius * cos(theta); // z
+
+            // Set color for each vertex (simple gradient)
+            sphereColors[index * 3] = (float)lat / segments; // Red
+            sphereColors[index * 3 + 1] = (float)lon / segments; // Green
+            sphereColors[index * 3 + 2] = 0.5f; // Blue
+
+            ++index;
+        }
+    }
+
+    glPushMatrix();
+    // Position the sphere in 3D space using xPos, yPos, zPos
+    glTranslatef(xPos, yPos, zPos);
+
+    // Rotate the sphere for animation or effect
+    glRotatef(angle, 1.0f, 0.0f, 0.0f); // Rotate around X-axis
+    glRotatef(angle, 0.0f, 1.0f, 0.0f); // Rotate around Y-axis
+
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glEnableClientState(GL_COLOR_ARRAY);
+
+    glVertexPointer(3, GL_FLOAT, 0, sphereVertices);
+    glColorPointer(3, GL_FLOAT, 0, sphereColors);
+
+    // Draw the solid sphere using GL_TRIANGLE_STRIP
+    for (int lat = 0; lat < segments; ++lat) {
+        for (int lon = 0; lon < segments; ++lon) {
+            // Get the 4 vertices of each quad (for each latitude-longitude pair)
+            int p1 = lat * (segments + 1) + lon;
+            int p2 = p1 + 1;
+            int p3 = (lat + 1) * (segments + 1) + lon;
+            int p4 = p3 + 1;
+
+            // Create two triangles for each quad
+            float vertices[6][3] = {
+                {sphereVertices[p1 * 3], sphereVertices[p1 * 3 + 1], sphereVertices[p1 * 3 + 2]},
+                {sphereVertices[p2 * 3], sphereVertices[p2 * 3 + 1], sphereVertices[p2 * 3 + 2]},
+                {sphereVertices[p3 * 3], sphereVertices[p3 * 3 + 1], sphereVertices[p3 * 3 + 2]},
+                {sphereVertices[p3 * 3], sphereVertices[p3 * 3 + 1], sphereVertices[p3 * 3 + 2]},
+                {sphereVertices[p2 * 3], sphereVertices[p2 * 3 + 1], sphereVertices[p2 * 3 + 2]},
+                {sphereVertices[p4 * 3], sphereVertices[p4 * 3 + 1], sphereVertices[p4 * 3 + 2]}
+            };
+
+            glBegin(GL_TRIANGLES);
+            for (int i = 0; i < 6; ++i) {
+                glColor3fv(&sphereColors[(p1 + i) * 3]);
+                glVertex3fv(vertices[i]);
+            }
+            glEnd();
+        }
+    }
+
+    glDisableClientState(GL_VERTEX_ARRAY);
+    glDisableClientState(GL_COLOR_ARRAY);
+
+    glPopMatrix();
+}
 
 void timer(int value) {
     updateMovement();
@@ -1203,8 +1341,8 @@ void reshape(GLsizei width, GLsizei height) {
     glEnable(GL_FOG);
     glFogi(GL_FOG_MODE, GL_LINEAR);
     glFogfv(GL_FOG_COLOR, fogColor);
-    glFogf(GL_FOG_START, 3005.0f);     // Start fog after 2000 units 35 best nearest
-    glFogf(GL_FOG_END, 5000.0f);       // Full fog by 4500 units 50 or100 for farthest
+    glFogf(GL_FOG_START, 15000.0f);     // Start fog after 2000 units 35 best nearest
+    glFogf(GL_FOG_END, 35000.0f);       // Full fog by 4500 units 50 or100 for farthest
     glHint(GL_FOG_HINT, GL_NICEST);
 
     glMatrixMode(GL_MODELVIEW);
@@ -1323,7 +1461,6 @@ void renderHUD() {
     glMatrixMode(GL_MODELVIEW);
 }
 
-
 void display() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glMatrixMode(GL_MODELVIEW);
@@ -1368,223 +1505,30 @@ void display() {
 }
 
 
+// void renderCubeMap() {
+//     // Position using GLM vectors
+//     glm::vec3 position(0.0f, 16.0f, 0.0f);
+//     float size = 1024.0f;
+//     int gridDivisions = 36;
 
+//     glPushMatrix();
+//     {
+//         // Create transformation matrix
+//         glm::mat4 model = glm::mat4(1.0f);
+//         model = glm::translate(model, position);
 
-/*
+        //// Optional rotation
+        // model = glm::rotate(model, glm::radians(rotationAngle), glm::vec3(0.1f, 1.0f, 0.1f));
 
-smooth sphere without using VBO
+//         // Apply transformation
+//         glMultMatrixf(glm::value_ptr(model));
 
-void renderAnotherSphere3D(float radius, int segments, float angle, float xPos, float yPos, float zPos) {
-    // Arrays for vertices and colors
-    vector<float> sphereVertices;
-    vector<float> sphereColors;
+//         glEnable(GL_POLYGON_OFFSET_FILL);
+//         glPolygonOffset(1.0f, 1.0f);
 
-    // Generate vertices and colors
-    for (int lat = 0; lat <= segments; ++lat) {
-        float theta = lat * M_PI / segments; // Latitude angle (0 to pi)
-        for (int lon = 0; lon <= segments; ++lon) {
-            float phi = lon * 2.0f * M_PI / segments; // Longitude angle (0 to 2pi)
+//         renderCubeWithGrid(size, gridDivisions);
 
-            // Vertex positions
-            sphereVertices.push_back(radius * sin(theta) * cos(phi)); // x
-            sphereVertices.push_back(radius * sin(theta) * sin(phi)); // y
-            sphereVertices.push_back(radius * cos(theta));           // z
-
-            // Vertex colors (simple gradient)
-            sphereColors.push_back((float)lat / segments); // Red
-            sphereColors.push_back((float)lon / segments); // Green
-            sphereColors.push_back(0.9f);                 // Blue
-        }
-    }
-
-    glPushMatrix();
-    glTranslatef(xPos, yPos, zPos); // Position the sphere
-    glRotatef(angle, 1.0f, 1.0f, 0.0f); // Rotate for animation
-
-    glEnableClientState(GL_VERTEX_ARRAY);
-    glEnableClientState(GL_COLOR_ARRAY);
-
-    glVertexPointer(3, GL_FLOAT, 0, sphereVertices.data());
-    glColorPointer(3, GL_FLOAT, 0, sphereColors.data());
-
-    // Render the sphere using triangle strips
-    for (int lat = 0; lat < segments; ++lat) {
-        glBegin(GL_TRIANGLE_STRIP);
-        for (int lon = 0; lon <= segments; ++lon) {
-            int curr = lat * (segments + 1) + lon;
-            int next = (lat + 1) * (segments + 1) + lon;
-
-            glColor3fv(&sphereColors[curr * 3]);
-            glVertex3fv(&sphereVertices[curr * 3]);
-
-            glColor3fv(&sphereColors[next * 3]);
-            glVertex3fv(&sphereVertices[next * 3]);
-        }
-        glEnd();
-    }
-
-    glDisableClientState(GL_VERTEX_ARRAY);
-    glDisableClientState(GL_COLOR_ARRAY);
-    glPopMatrix();
-}
-
-
-// Function to render a cube with grid lines on each face
-void  renderCubeWithGrid(float size, int gridDivisions = 4) {
-    float halfSize = size / 2.0f;
-    float step = size / gridDivisions;
-
-    // Render solid cube
-    glBegin(GL_QUADS);
-    glColor3f(0.5f, 0.5f, 0.5f);
-
-    // Front face
-    glVertex3f(-halfSize, -halfSize, halfSize);
-    glVertex3f(halfSize, -halfSize, halfSize);
-    glVertex3f(halfSize, halfSize, halfSize);
-    glVertex3f(-halfSize, halfSize, halfSize);
-
-    // Back face
-    glVertex3f(-halfSize, -halfSize, -halfSize);
-    glVertex3f(-halfSize, halfSize, -halfSize);
-    glVertex3f(halfSize, halfSize, -halfSize);
-    glVertex3f(halfSize, -halfSize, -halfSize);
-
-    // Left face
-    glVertex3f(-halfSize, -halfSize, -halfSize);
-    glVertex3f(-halfSize, -halfSize, halfSize);
-    glVertex3f(-halfSize, halfSize, halfSize);
-    glVertex3f(-halfSize, halfSize, -halfSize);
-
-    // Right face
-    glVertex3f(halfSize, -halfSize, -halfSize);
-    glVertex3f(halfSize, halfSize, -halfSize);
-    glVertex3f(halfSize, halfSize, halfSize);
-    glVertex3f(halfSize, -halfSize, halfSize);
-
-    // Top face
-    glVertex3f(-halfSize, halfSize, -halfSize);
-    glVertex3f(-halfSize, halfSize, halfSize);
-    glVertex3f(halfSize, halfSize, halfSize);
-    glVertex3f(halfSize, halfSize, -halfSize);
-
-    // Bottom face
-    glVertex3f(-halfSize, -halfSize, -halfSize);
-    glVertex3f(halfSize, -halfSize, -halfSize);
-    glVertex3f(halfSize, -halfSize, halfSize);
-    glVertex3f(-halfSize, -halfSize, halfSize);
-
-    // Define the four corners of the floor (planar square)
-    glVertex3f(-halfSize, 0.0f, -halfSize);
-    glVertex3f(halfSize, 0.0f, -halfSize);
-    glVertex3f(halfSize, 0.0f, halfSize);
-    glVertex3f(-halfSize, 0.0f, halfSize);
-
-    glEnd();
-
-    // Overlay grid lines on each face
-    glBegin(GL_LINES);
-    glColor3f(0.0f, 0.0f, 0.0f);  // Set grid color to black
-    // Front face grid
-    for (float i = -halfSize; i <= halfSize; i += step) {
-        glVertex3f(i, -halfSize, halfSize);
-        glVertex3f(i, halfSize, halfSize);  // Vertical lines
-        glVertex3f(-halfSize, i, halfSize);
-        glVertex3f(halfSize, i, halfSize);  // Horizontal lines
-    }
-
-    // Back face grid
-    for (float i = -halfSize; i <= halfSize; i += step) {
-        glVertex3f(i, -halfSize, -halfSize);
-        glVertex3f(i, halfSize, -halfSize);
-        glVertex3f(-halfSize, i, -halfSize);
-        glVertex3f(halfSize, i, -halfSize);
-    }
-
-    // Left face grid
-    for (float i = -halfSize; i <= halfSize; i += step) {
-        glVertex3f(-halfSize, -halfSize, i);
-        glVertex3f(-halfSize, halfSize, i);
-        glVertex3f(-halfSize, i, -halfSize);
-        glVertex3f(-halfSize, i, halfSize);
-    }
-
-    // Right face grid
-    for (float i = -halfSize; i <= halfSize; i += step) {
-        glVertex3f(halfSize, -halfSize, i);
-        glVertex3f(halfSize, halfSize, i);
-        glVertex3f(halfSize, i, -halfSize);
-        glVertex3f(halfSize, i, halfSize);
-    }
-
-    // Top face grid
-    for (float i = -halfSize; i <= halfSize; i += step) {
-        glVertex3f(i, halfSize, -halfSize);
-        glVertex3f(i, halfSize, halfSize);
-        glVertex3f(-halfSize, halfSize, i);
-        glVertex3f(halfSize, halfSize, i);
-    }
-
-    // Bottom face grid
-    for (float i = -halfSize; i <= halfSize; i += step) {
-        glVertex3f(i, -halfSize, -halfSize);
-        glVertex3f(i, -halfSize, halfSize);
-        glVertex3f(-halfSize, -halfSize, i);
-        glVertex3f(halfSize, -halfSize, i);
-    }
-
-    glEnd();
-
-    // Overlay grid lines on the floor
-    glBegin(GL_LINES);
-    glColor3f(0.0f, 0.0f, 0.0f);  // Set grid color to black
-    // Floor grid at y = 0
-    for (float i = -halfSize; i <= halfSize; i += step) {
-        // Vertical lines along x-axis
-        glVertex3f(i, 0.0f, -halfSize);
-        glVertex3f(i, 0.0f, halfSize);
-
-        // Horizontal lines along z-axis
-        glVertex3f(-halfSize, 0.0f, i);
-        glVertex3f(halfSize, 0.0f, i);
-    }
-    glEnd();
-}
-
-// Modified renderCubeMap function with additional features
-void renderCubeMap() {
-    //static float rotationAngle = 0.0f;  // For rotation animation if desired
-
-    // Set adjustable position coordinates
-    float x = 0.0f;
-    float y = 16.0f;
-    float z = 0.0f;
-
-    float size = 1024.0f; //1024 best for skybox 200 for experimental
-    int gridDivisions = 36;
-
-    glPushMatrix();
-    {
-        // Position the cube
-        glTranslatef(x, y, z);
-
-        // Optional: Add rotation for better visualization
-        //glRotatef(rotationAngle, 0.1f, 1.0f, 0.1f);
-
-        // Enable polygon offset for better grid line rendering
-        glEnable(GL_POLYGON_OFFSET_FILL);
-        glPolygonOffset(1.0f, 1.0f);
-
-        // Render the cube with grid
-        renderCubeWithGrid(size, gridDivisions);
-        glDisable(GL_POLYGON_OFFSET_FILL);
-    }
-    glPopMatrix();
-
-    // Uncomment to add rotation animation
-    //rotationAngle += 0.1f;
-}
-
-
-
-*/
+//         glDisable(GL_POLYGON_OFFSET_FILL);
+//     }
+//     glPopMatrix();
+// }
