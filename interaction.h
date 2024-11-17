@@ -10,7 +10,7 @@ int refreshMills = 5; // Refresh interval in milliseconds the lower the better m
 float cameraX = 0.0f;
 float cameraY = 17.5f;
 float cameraZ = 10.0f;
-float cameraSpeed = 0.1f; //can be adjusted the higher the faster 0.1 is the best it was 0.3 kinda quick
+float cameraSpeed = 2.1f; //can be adjusted the higher the faster 0.1 is the best it was 0.3 kinda quick
 // Camera angles
 float yaw = -90.0f;
 float pitch = 0.0f;
@@ -26,9 +26,9 @@ float lookZ = -1.0f;
 bool keyStates[256] = { false };
 float velocityX = 0.0f;
 float velocityZ = 0.0f;
-float maxVelocity = 0.15f;
-float acceleration = 0.05f; //inertia
-float deceleration = 0.1f; //inertia
+float maxVelocity = 4.15f;
+float acceleration = 0.05f; //inertia //0.05 is the best
+float deceleration = 0.1f; //inertia //0.01 is the best
 
 // Window state
 bool isPaused = false;

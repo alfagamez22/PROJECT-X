@@ -19,9 +19,9 @@
 #include <direct.h> //for _getcwd
 #include <iostream>
 
-// #include <glm/glm.hpp>
-// #include <glm/gtc/matrix_transform.hpp>
-// #include <glm/gtc/type_ptr.hpp>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 #include "textureloader.cpp" //texture method
 #include "interaction.h" //movement globals
@@ -46,7 +46,7 @@ void renderPauseMenu();
 void renderCube();
 void renderPyramid();
 void renderSphere3D(float radius, int segments, float angle, float xPos, float yPos, float zPos);
-void renderCubeMap();
+void skyBoxMap();
 void updateParticles();
 void renderParticles();
 void displayCoordinates(float coordX, float coordY, float coordZ);
@@ -56,13 +56,40 @@ void initVBOs(); // Initialize VBOs
 void cleanupVBO(); // Cleanup VBOs
 void cleanup();
 
+
+// Add this with other function prototypes
+void initPyramidInstances();
+
+
 GLuint loadTexture(const char* filename); // Load texture from file
 
-//Initialize VBOs
-GLuint pyramidVBOs[2], sphere3DVBOs[2], cubeVBOs[2], renderCubeWithGridVBOs[4];
-GLuint textureID;
 
 /* Global variables */
+//Initialize VBOs
+GLuint pyramidVBOs[2], sphere3DVBOs[2], skyBoxVBOs[4];
+GLuint textureID;
+// Texture IDs for different surfaces
+struct SkyboxTextures {
+    GLuint floor;
+    GLuint frontWall;
+    GLuint backWall;
+    GLuint leftWall;
+    GLuint rightWall;
+    GLuint roof;
+} skyboxTextures;
+
+struct Textures {
+    GLuint pyramid;
+} textures;
+
+
+// Add structure for pyramid instances
+struct PyramidInstance {
+    glm::vec3 position;
+    float rotation;
+    glm::vec3 scale;
+};
+
 //Draw fps
 chrono::time_point<chrono::high_resolution_clock> startTime;
 int frameCount = 0;
@@ -78,13 +105,8 @@ const int segments = 10;
 float lightAngle = 80.0f;
 float lightRadius = 400.0f;
 float lightY = 150.0f; //light height
-float lightSpeed = 0.05f;
-int currentCorner = 0;
-
-//CubeGrid perlin noise variable
-float persistence = 0.5f; // Controls detail persistence across octaves
-int octaves = 6; // Number of noise layers (more = more detail)
-float frequency = 0.02f; // Base frequency of the noise
+float lightSpeed = 0.5f;
+int currentCorner = 3;
 
 
 //for logging purposes
@@ -101,62 +123,9 @@ vector<Particle> particles;
 //texture coordinate data
 vector<float> textureCoordData;
 
-class PerlinNoise {
-private:
-    std::vector<int> p;
+// Create vector to store instances
+vector<PyramidInstance> pyramidInstances;
 
-public:
-    PerlinNoise() {
-        p.resize(512);
-        for (int i = 0; i < 256; i++) p[i] = i;
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        std::shuffle(p.begin(), p.begin() + 256, gen);
-        for (int i = 0; i < 256; i++) p[256 + i] = p[i];
-    }
-
-    double noise(double x, double y, double z) {
-        int X = (int)floor(x) & 255;
-        int Y = (int)floor(y) & 255;
-        int Z = (int)floor(z) & 255;
-
-        x -= floor(x);
-        y -= floor(y);
-        z -= floor(z);
-
-        double u = fade(x);
-        double v = fade(y);
-        double w = fade(z);
-
-        int A = p[X] + Y;
-        int AA = p[A] + Z;
-        int AB = p[A + 1] + Z;
-        int B = p[X + 1] + Y;
-        int BA = p[B] + Z;
-        int BB = p[B + 1] + Z;
-
-        return lerp(w, lerp(v, lerp(u, grad(p[AA], x, y, z),
-            grad(p[BA], x - 1, y, z)),
-            lerp(u, grad(p[AB], x, y - 1, z),
-                grad(p[BB], x - 1, y - 1, z))),
-            lerp(v, lerp(u, grad(p[AA + 1], x, y, z - 1),
-                grad(p[BA + 1], x - 1, y, z - 1)),
-                lerp(u, grad(p[AB + 1], x, y - 1, z - 1),
-                    grad(p[BB + 1], x - 1, y - 1, z - 1))));
-    }
-
-private:
-    double fade(double t) { return t * t * t * (t * (t * 6 - 15) + 10); }
-    double lerp(double t, double a, double b) { return a + t * (b - a); }
-    double grad(int hash, double x, double y, double z) {
-        int h = hash & 15;
-        double u = h < 8 ? x : y;
-        double v = h < 4 ? y : h == 12 || h == 14 ? x : z;
-        return ((h & 1) == 0 ? u : -u) + ((h & 2) == 0 ? v : -v);
-    }
-};
-// Add this as a global variable
-PerlinNoise perlin;
 
 // Main display function
 int main(int argc, char** argv) {
@@ -221,120 +190,73 @@ void initGL() {
     glDepthFunc(GL_LEQUAL);
     glShadeModel(GL_SMOOTH);
 
+    initPyramidInstances();
+
     glHint(GL_PERSPECTIVE_CORRECTION_HINT, GL_NICEST);
     glutSetCursor(GLUT_CURSOR_NONE);
     initVBOs();
 
-    // Start the clock on startup from 0 to -> calculate FPS
     startTime = chrono::high_resolution_clock::now();
     logMessage("Application starting Now...");
 
-    // Enable texturing
     glEnable(GL_TEXTURE_2D);
 
-    textureID = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/sand.png");  // Replace with your texture file
+    // Load all textures
+    skyboxTextures.floor = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/sand.png");
+    skyboxTextures.backWall = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/skyclouds.png");
+    skyboxTextures.frontWall = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/skyclouds.png");
+    skyboxTextures.leftWall = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/skyclouds.png");
+    skyboxTextures.rightWall = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/skyclouds.png");
+    skyboxTextures.roof = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/sky.png");
 
+    textures.pyramid = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/sandstone.jpg");
     atexit(cleanup);
-
 }
 
-void renderCube() {
-    glPushMatrix();
+// Initialize pyramid instances in initGL() or separate init function
+void initPyramidInstances() {
+    // Create 1000 pyramids with random positions across the skybox
+    for (int i = 0; i < 100; i++) {
+        PyramidInstance instance;
+        instance.position = glm::vec3(
+            randomFloat(-5500.0f, 5500.0f),     // x range within skybox
+            randomFloat(10.0f, 27.5f),       // y range for varied heights
+            randomFloat(-5500.0f, 5500.0f)      // z range within skybox
+        );
+        instance.scale = glm::vec3(randomFloat(1.0f, 10.0f)); // Random sizes
+        pyramidInstances.push_back(instance);
+    }
+}
 
-    // Enable lighting for this specific object
-    glEnable(GL_LIGHTING);
-    glEnable(GL_LIGHT0);
-
-    // Configure light properties
-    GLfloat lightPos[] = { 0.0f, 5.0f, 10.0f, 1.0f }; // Position of the light
-    GLfloat lightAmbient[] = { 0.5f, 0.5f, 0.5f, 1.0f }; // Soft white ambient light
-    GLfloat lightDiffuse[] = { 1.0f, 1.0f, 1.0f, 1.0f }; // Bright white diffuse light
-    GLfloat lightSpecular[] = { 1.0f, 1.0f, 1.0f, 1.0f }; // Bright white specular light
-
-    glLightfv(GL_LIGHT0, GL_POSITION, lightPos);
-    glLightfv(GL_LIGHT0, GL_AMBIENT, lightAmbient);
-    glLightfv(GL_LIGHT0, GL_DIFFUSE, lightDiffuse);
-    glLightfv(GL_LIGHT0, GL_SPECULAR, lightSpecular);
-
-    // Configure material properties for brightness
-    GLfloat matAmbient[] = { 1.7f, 1.7f, 1.7f, 1.0f }; // Brighter ambient reflection
-    GLfloat matDiffuse[] = { 0.9f, 0.9f, 0.9f, 1.0f }; // Brighter diffuse reflection
-    GLfloat matSpecular[] = { 1.0f, 1.0f, 1.0f, 1.0f }; // Strong specular reflection
-    GLfloat matShininess[] = { 100.0f };               // High shininess for glossy effect
-
-    glMaterialfv(GL_FRONT, GL_AMBIENT, matAmbient);
-    glMaterialfv(GL_FRONT, GL_DIFFUSE, matDiffuse);
-    glMaterialfv(GL_FRONT, GL_SPECULAR, matSpecular);
-    glMaterialfv(GL_FRONT, GL_SHININESS, matShininess);
-
-    // Position the cube in 3D space
-    glTranslatef(1.5f, 18.0f, -7.0f);
-    glRotatef(angleCube, 1.0f, 1.0f, 1.0f);
-
-    glBindTexture(GL_TEXTURE_2D, textureID);
+void renderPyramid() {
+    glEnable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, textures.pyramid);
 
     glEnableClientState(GL_VERTEX_ARRAY);
     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
 
-    // Bind vertex VBO
-    glBindBuffer(GL_ARRAY_BUFFER, cubeVBOs[0]);
-    glVertexPointer(3, GL_FLOAT, 0, nullptr);
+    glBindBuffer(GL_ARRAY_BUFFER, pyramidVBOs[0]);
+    glVertexPointer(3, GL_FLOAT, 0, 0);
 
-    // Bind texture VBO
-    glBindBuffer(GL_ARRAY_BUFFER, cubeVBOs[1]);
-    glTexCoordPointer(2, GL_FLOAT, 0, nullptr);
+    glBindBuffer(GL_ARRAY_BUFFER, pyramidVBOs[1]);
+    glTexCoordPointer(2, GL_FLOAT, 0, 0);
 
-    glDrawArrays(GL_QUADS, 0, 24);
+    // Render each instance
+    for (const auto& instance : pyramidInstances) {
+        glPushMatrix();
+        glTranslatef(instance.position.x, instance.position.y, instance.position.z);
+        glScalef(instance.scale.x, instance.scale.y, instance.scale.z);
+
+        glDrawArrays(GL_TRIANGLES, 0, 12);
+        glDrawArrays(GL_QUADS, 12, 4);
+
+        glPopMatrix();
+    }
 
     glDisableClientState(GL_VERTEX_ARRAY);
     glDisableClientState(GL_TEXTURE_COORD_ARRAY);
-
-    glBindTexture(GL_TEXTURE_2D, 0);
-
-    // Disable lighting after rendering the cube
-    glDisable(GL_LIGHTING);
-    glDisable(GL_LIGHT0);
-
-    glPopMatrix();
+    glDisable(GL_TEXTURE_2D);
 }
-void cubeVBO() {
-    glGenBuffers(2, cubeVBOs);
-
-    // Vertex coordinates
-    glBindBuffer(GL_ARRAY_BUFFER, cubeVBOs[0]);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVertices), cubeVertices, GL_STATIC_DRAW);
-
-    // Texture coordinates
-    glBindBuffer(GL_ARRAY_BUFFER, cubeVBOs[1]);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(textureCoords), textureCoords, GL_STATIC_DRAW);
-}
-
-void renderPyramid() {
-    glPushMatrix();
-    // Position the pyramid in 3D space
-    glTranslatef(-1.5f, 18.0f, -6.0f);
-    // Rotate the pyramid  coordinate system only rotating in y axis
-    glRotatef(anglePyramid, 0.0f, 1.0f, 0.0f);
-
-    glEnableClientState(GL_VERTEX_ARRAY);
-    glEnableClientState(GL_COLOR_ARRAY);
-
-    // Bind vertex VBO
-    glBindBuffer(GL_ARRAY_BUFFER, pyramidVBOs[0]);
-    glVertexPointer(3, GL_FLOAT, 0, nullptr);
-
-    // Bind color VBO
-    glBindBuffer(GL_ARRAY_BUFFER, pyramidVBOs[1]);
-    glColorPointer(3, GL_FLOAT, 0, nullptr);
-
-    glDrawArrays(GL_TRIANGLES, 0, 12);
-    glDrawArrays(GL_QUADS, 12, 4);
-
-    glDisableClientState(GL_VERTEX_ARRAY);
-    glDisableClientState(GL_COLOR_ARRAY);
-
-    glPopMatrix();
-}\
 void pyramidVBO() {
     // Pyramid VBO setup
     glGenBuffers(2, pyramidVBOs);
@@ -344,7 +266,7 @@ void pyramidVBO() {
     glBufferData(GL_ARRAY_BUFFER, sizeof(pyramidVertices), pyramidVertices, GL_STATIC_DRAW);
     // Pyramid color VBO
     glBindBuffer(GL_ARRAY_BUFFER, pyramidVBOs[1]);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(pyramidColors), pyramidColors, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(pyramidTextureCoords), pyramidTextureCoords, GL_STATIC_DRAW);
 }
 
 void renderSphere3D(float radius, int segments, float angle, float xPos, float yPos, float zPos) {
@@ -435,180 +357,58 @@ void sphere3dVBO() {
     glBufferData(GL_ARRAY_BUFFER, sizeof(sphereColors), sphereColors, GL_STATIC_DRAW);
 }
 
-void renderCubeWithGridVBO() {
-    // Generate VBO IDs (now 3 for vertex, texture coords, and noise)
-    glGenBuffers(3, renderCubeWithGridVBOs);
+void skyBoxVBO() {
+    // Generate VBO IDs
+    glGenBuffers(3, skyBoxVBOs);
 
     // Upload vertex data
-    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[0]);
+    glBindBuffer(GL_ARRAY_BUFFER, skyBoxVBOs[0]);
     glBufferData(GL_ARRAY_BUFFER, vertexData.size() * sizeof(float), vertexData.data(), GL_STATIC_DRAW);
 
     // Upload texture coordinate data
-    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[1]);
+    glBindBuffer(GL_ARRAY_BUFFER, skyBoxVBOs[1]);
     glBufferData(GL_ARRAY_BUFFER, textureCoordData.size() * sizeof(float), textureCoordData.data(), GL_STATIC_DRAW);
 
-    // Enable texture
+    // Enable texture and vertex arrays
     glEnable(GL_TEXTURE_2D);
-    glBindTexture(GL_TEXTURE_2D, textureID);
-
-    // Render textured cube
-    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[0]);
     glEnableClientState(GL_VERTEX_ARRAY);
-    glVertexPointer(3, GL_FLOAT, 0, 0);
-
-    glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[1]);
     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+
+    // Set up vertex and texture coordinate pointers
+    glBindBuffer(GL_ARRAY_BUFFER, skyBoxVBOs[0]);
+    glVertexPointer(3, GL_FLOAT, 0, 0);
+    glBindBuffer(GL_ARRAY_BUFFER, skyBoxVBOs[1]);
     glTexCoordPointer(2, GL_FLOAT, 0, 0);
 
-    glDrawArrays(GL_QUADS, 0, vertexData.size() / 3);
+    // Draw front wall
+    glBindTexture(GL_TEXTURE_2D, skyboxTextures.frontWall);
+    glDrawArrays(GL_QUADS, 0, 4);
 
+    // Draw back wall
+    glBindTexture(GL_TEXTURE_2D, skyboxTextures.backWall);
+    glDrawArrays(GL_QUADS, 4, 4);
+
+    // Draw left wall
+    glBindTexture(GL_TEXTURE_2D, skyboxTextures.leftWall);
+    glDrawArrays(GL_QUADS, 8, 4);
+
+    // Draw right wall
+    glBindTexture(GL_TEXTURE_2D, skyboxTextures.rightWall);
+    glDrawArrays(GL_QUADS, 12, 4);
+
+    // Draw roof
+    glBindTexture(GL_TEXTURE_2D, skyboxTextures.roof);
+    glDrawArrays(GL_QUADS, 16, 4);
+
+    // Draw floor
+    glBindTexture(GL_TEXTURE_2D, skyboxTextures.floor);
+    glDrawArrays(GL_QUADS, 20, 4);
     // Cleanup
     glDisableClientState(GL_VERTEX_ARRAY);
     glDisableClientState(GL_TEXTURE_COORD_ARRAY);
     glDisable(GL_TEXTURE_2D);
 }
-
-// void renderCubeWithGridVBO() {
-//     // Generate VBO IDs
-//     glGenBuffers(2, renderCubeWithGridVBOs);
-
-//     // Upload cube vertex data
-//     glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[0]);
-//     glBufferData(GL_ARRAY_BUFFER, vertexData.size() * sizeof(float), vertexData.data(), GL_STATIC_DRAW);
-
-//     // Upload cube color data
-//     glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[1]);
-//     glBufferData(GL_ARRAY_BUFFER, cubeColorData.size() * sizeof(float), cubeColorData.data(), GL_STATIC_DRAW);
-
-//     // Render solid cube
-//     glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[0]);
-//     glEnableClientState(GL_VERTEX_ARRAY);
-//     glVertexPointer(3, GL_FLOAT, 0, 0);
-
-//     glBindBuffer(GL_ARRAY_BUFFER, renderCubeWithGridVBOs[1]);
-//     glEnableClientState(GL_COLOR_ARRAY);
-//     glColorPointer(3, GL_FLOAT, 0, 0);
-
-//     glDrawArrays(GL_QUADS, 0, vertexData.size() / 3);
-
-//     // Cleanup
-//     glDisableClientState(GL_VERTEX_ARRAY);
-//     glDisableClientState(GL_COLOR_ARRAY);
-//     //glBindBuffer(GL_ARRAY_BUFFER, 0);
-// }
-
-// Function to generate and update vertices
-
-// void renderCubeWithGrid(float size, int gridDivisions = 4) {
-//     float step = size / gridDivisions;
-
-//     vertexData.clear();
-//     cubeColorData.clear();
-//     Skybox::updateCubeVertices(size);
-//     // Use Skybox::globalCubeVertices to access the vertices
-//     for (int i = 0; i < Skybox::globalCubeVertices.size(); i += 3) {
-//         vertexData.push_back(Skybox::globalCubeVertices[i]);
-//         vertexData.push_back(Skybox::globalCubeVertices[i + 1]);
-//         vertexData.push_back(Skybox::globalCubeVertices[i + 2]);
-
-//         // cubeColorData.push_back(0.8f); //R
-//         // cubeColorData.push_back(0.8f); //G
-//         // cubeColorData.push_back(0.8f); //B
-//         // cubeColorData.push_back(1.0);
-
-//         cubeColorData.push_back(0.96f); //R
-//         cubeColorData.push_back(0.64f); //G
-//         cubeColorData.push_back(0.38f); //B
-//         cubeColorData.push_back(0.0);
-
-//         //0.96f, 0.64f, 0.38f, 1.0f
-//     }
-// }
-
-// void renderCubeWithGrid(float size, int gridDivisions = 4) {
-//     float step = size / gridDivisions;
-//     vertexData.clear();
-//     cubeColorData.clear();
-
-//     Skybox::updateCubeVertices(size);
-
-//     for (int i = 0; i < Skybox::globalCubeVertices.size(); i += 3) {
-//         float x = Skybox::globalCubeVertices[i];
-//         float y = Skybox::globalCubeVertices[i + 1];
-//         float z = Skybox::globalCubeVertices[i + 2];
-
-//         vertexData.push_back(x);
-//         vertexData.push_back(y);
-//         vertexData.push_back(z);
-
-//         // Generate Perlin noise value
-//         float noiseValue = 0.0f;
-//         float amplitude = 1.0f;
-//         float totalAmplitude = 0.0f;
-
-//         for (int oct = 0; oct < octaves; oct++) {
-//             float freq = frequency * pow(2, oct);
-//             float perlinValue = perlin.noise(x * freq, y * freq, z * freq);
-//             noiseValue += perlinValue * amplitude;
-//             totalAmplitude += amplitude;
-//             amplitude *= persistence;
-//         }
-
-//         noiseValue /= totalAmplitude;
-//         noiseValue = (noiseValue + 1.0f) * 0.5f;  // Normalize to 0-1
-
-//         // Desert sand colors with noise variation
-//        // Use noise value to modify base sand color
-//         cubeColorData.push_back(0.95f * (0.8f + 0.2f * noiseValue));  // R
-//         cubeColorData.push_back(0.87f * (0.8f + 0.2f * noiseValue));  // G
-//         cubeColorData.push_back(0.60f * (0.8f + 0.2f * noiseValue));  // B
-//         cubeColorData.push_back(1.0f);  // A
-//     }
-// }
-
-// void renderCubeWithGrid(float size, int gridDivisions = 4) {
-//     float step = size / gridDivisions;
-//     vertexData.clear();
-//     textureCoordData.clear();
-
-//     Skybox::updateCubeVertices(size);
-
-//     for (int i = 0; i < Skybox::globalCubeVertices.size(); i += 12) {
-//         for (int j = 0; j < 4; j++) {
-//             float x = Skybox::globalCubeVertices[i + j * 3];
-//             float y = Skybox::globalCubeVertices[i + j * 3 + 1];
-//             float z = Skybox::globalCubeVertices[i + j * 3 + 2];
-
-//             // Generate Perlin noise value
-//             float noiseValue = 0.0f;
-//             float amplitude = 1.0f;
-//             float totalAmplitude = 0.0f;
-
-//             for (int oct = 0; oct < octaves; oct++) {
-//                 float freq = frequency * pow(2, oct);
-//                 float perlinValue = perlin.noise(x * freq, y * freq, z * freq);
-//                 noiseValue += perlinValue * amplitude;
-//                 totalAmplitude += amplitude;
-//                 amplitude *= persistence;
-//             }
-
-//             noiseValue /= totalAmplitude;
-//             noiseValue = (noiseValue + 1.0f) * 0.5f;  // Normalize to 0-1
-
-//             vertexData.push_back(x);
-//             vertexData.push_back(y);
-//             vertexData.push_back(z);
-
-//             // Add texture coordinates with noise influence
-//             float texU = (float)(j % 2) + noiseValue * 0.1f;
-//             float texV = (float)(j / 2) + noiseValue * 0.1f;
-//             textureCoordData.push_back(texU);
-//             textureCoordData.push_back(texV);
-//         }
-//     }
-// }
-
-void renderCubeWithGrid(float size, int gridDivisions = 4) {
+void skyBox(float size, int gridDivisions = 4) {
     float step = size / gridDivisions;
     vertexData.clear();
     textureCoordData.clear();
@@ -620,8 +420,11 @@ void renderCubeWithGrid(float size, int gridDivisions = 4) {
         vertexData.push_back(Skybox::frontWallVertices[i]);
         vertexData.push_back(Skybox::frontWallVertices[i + 1]);
         vertexData.push_back(Skybox::frontWallVertices[i + 2]);
-        textureCoordData.push_back(0.0f);
-        textureCoordData.push_back(0.0f);
+
+        float texU = (Skybox::frontWallVertices[i] + size / 2) / size;
+        float texV = Skybox::frontWallVertices[i + 1] / size;
+        textureCoordData.push_back(texU);
+        textureCoordData.push_back(texV);
     }
 
     // Back Wall
@@ -629,8 +432,11 @@ void renderCubeWithGrid(float size, int gridDivisions = 4) {
         vertexData.push_back(Skybox::backWallVertices[i]);
         vertexData.push_back(Skybox::backWallVertices[i + 1]);
         vertexData.push_back(Skybox::backWallVertices[i + 2]);
-        textureCoordData.push_back(0.0f);
-        textureCoordData.push_back(0.0f);
+
+        float texU = (Skybox::backWallVertices[i] + size / 2) / size;
+        float texV = Skybox::backWallVertices[i + 1] / size;
+        textureCoordData.push_back(texU);
+        textureCoordData.push_back(texV);
     }
 
     // Left Wall
@@ -638,8 +444,11 @@ void renderCubeWithGrid(float size, int gridDivisions = 4) {
         vertexData.push_back(Skybox::leftWallVertices[i]);
         vertexData.push_back(Skybox::leftWallVertices[i + 1]);
         vertexData.push_back(Skybox::leftWallVertices[i + 2]);
-        textureCoordData.push_back(0.0f);
-        textureCoordData.push_back(0.0f);
+
+        float texU = (Skybox::leftWallVertices[i + 2] + size / 2) / size;  // Use Z for U
+        float texV = Skybox::leftWallVertices[i + 1] / size;             // Use Y for V
+        textureCoordData.push_back(texU);
+        textureCoordData.push_back(texV);
     }
 
     // Right Wall
@@ -647,8 +456,11 @@ void renderCubeWithGrid(float size, int gridDivisions = 4) {
         vertexData.push_back(Skybox::rightWallVertices[i]);
         vertexData.push_back(Skybox::rightWallVertices[i + 1]);
         vertexData.push_back(Skybox::rightWallVertices[i + 2]);
-        textureCoordData.push_back(0.0f);
-        textureCoordData.push_back(0.0f);
+
+        float texU = (Skybox::rightWallVertices[i + 2] + size / 2) / size; // Use Z for U
+        float texV = Skybox::rightWallVertices[i + 1] / size;            // Use Y for V
+        textureCoordData.push_back(texU);
+        textureCoordData.push_back(texV);
     }
 
     // Roof
@@ -656,8 +468,11 @@ void renderCubeWithGrid(float size, int gridDivisions = 4) {
         vertexData.push_back(Skybox::roofVertices[i]);
         vertexData.push_back(Skybox::roofVertices[i + 1]);
         vertexData.push_back(Skybox::roofVertices[i + 2]);
-        textureCoordData.push_back(0.0f);
-        textureCoordData.push_back(0.0f);
+
+        float texU = (Skybox::roofVertices[i] + size / 2) / size;
+        float texV = (Skybox::roofVertices[i + 2] + size / 2) / size;
+        textureCoordData.push_back(texU);
+        textureCoordData.push_back(texV);
     }
 
     // Floor with texture coordinates
@@ -676,11 +491,9 @@ void renderCubeWithGrid(float size, int gridDivisions = 4) {
         textureCoordData.push_back(texV);
     }
 }
-
-
-void renderCubeMap() {
+void skyBoxMap() {
     float position[3] = { 0.0f, 16.0f, 0.0f };
-    float size = 524.0f;
+    float size = 10024.0f;
     int gridDivisions = 36;
     float halfSize = size / 2.0f;
 
@@ -729,16 +542,16 @@ void renderCubeMap() {
     glMaterialfv(GL_FRONT, GL_SPECULAR, materialSpecular);
     glMaterialfv(GL_FRONT, GL_SHININESS, materialShininess);
 
-    renderCubeWithGrid(size, gridDivisions);
+    skyBox(size, gridDivisions);
 
     glPushMatrix();
     {
         glTranslatef(position[0], position[1], position[2]);
-
         glEnable(GL_POLYGON_OFFSET_FILL);
         glPolygonOffset(1.0f, 1.0f);
 
-        renderCubeWithGridVBO();
+        // Only call skyBoxVBO here
+        skyBoxVBO();
 
         glDisable(GL_POLYGON_OFFSET_FILL);
     }
@@ -758,11 +571,11 @@ void renderCubeMap() {
         }
     }
 }
+
 void initVBOs() {
-    cubeVBO();
     pyramidVBO();
     sphere3dVBO();
-    renderCubeWithGridVBO();
+    //skyBoxVBO();
 
     // Unbind buffer
     glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -774,14 +587,6 @@ void initVBOs() {
 void cleanupVBO() {
     if (resourcesInitialized) {
         if (glutGetWindow()) {  // Ensure a valid OpenGL context
-            // Cleanup cube VBOs
-            if (cubeVBOs[0] || cubeVBOs[1]) {
-                glDeleteBuffers(2, cubeVBOs);
-                logMessage("Cube VBO resources successfully deleted.\n");
-            }
-            else {
-                logMessage("Cube VBO resources were not initialized or already deleted.\n");
-            }
             // Cleanup pyramid VBOs
             if (pyramidVBOs[0] || pyramidVBOs[1]) {
                 glDeleteBuffers(2, pyramidVBOs);
@@ -789,6 +594,13 @@ void cleanupVBO() {
             }
             else {
                 logMessage("Pyramid VBO resources were not initialized or already deleted.\n");
+            }
+            if (textures.pyramid) {
+                glDeleteTextures(1, &textures.pyramid);
+                logMessage("Pyramid texture successfully deleted.\n");
+            }
+            else {
+                logMessage("Pyramid texture was not initialized or already deleted.\n");
             }
             // Cleanup sphere VBOs
             if (sphere3DVBOs[0] || sphere3DVBOs[1]) {
@@ -798,15 +610,16 @@ void cleanupVBO() {
             else {
                 logMessage("Sphere VBO resources were not initialized or already deleted.\n");
             }
-            if (textureID) {
-                glDeleteTextures(1, &textureID);
+            if (skyboxTextures.floor || skyboxTextures.frontWall || skyboxTextures.backWall || skyboxTextures.leftWall || skyboxTextures.rightWall || skyboxTextures.roof) {
+                GLuint textures[] = { skyboxTextures.floor, skyboxTextures.frontWall, skyboxTextures.backWall, skyboxTextures.leftWall, skyboxTextures.rightWall, skyboxTextures.roof };
+                glDeleteTextures(6, textures);
                 logMessage("Texture resources successfully deleted.\n");
             }
             else {
                 logMessage("Texture resources were not initialized or already deleted.\n");
             }
-            if (renderCubeWithGridVBOs[0] || renderCubeWithGridVBOs[1]) {
-                glDeleteBuffers(2, renderCubeWithGridVBOs);
+            if (skyBoxVBOs[0] || skyBoxVBOs[1]) {
+                glDeleteBuffers(2, skyBoxVBOs);
                 logMessage("Render Cube with Grid VBO resources successfully deleted.\n");
             }
             else {
@@ -1187,8 +1000,8 @@ void reshape(GLsizei width, GLsizei height) { //perspective projection
     glEnable(GL_FOG);
     glFogi(GL_FOG_MODE, GL_LINEAR);
     glFogfv(GL_FOG_COLOR, fogColor);
-    glFogf(GL_FOG_START, 1000.0f);     // Start fog after 2000 units 35 best nearest
-    glFogf(GL_FOG_END, 35000.0f);       // Full fog by 4500 units 50 or100 for farthest
+    glFogf(GL_FOG_START, 10000.0f);     // Start fog after 2000 units 35 best nearest
+    glFogf(GL_FOG_END, 50000.0f);       // Full fog by 4500 units 50 or100 for farthest
     glHint(GL_FOG_HINT, GL_NICEST);
 
     glMatrixMode(GL_MODELVIEW);
@@ -1314,9 +1127,9 @@ void display() {
     glLoadIdentity();
 
     gluLookAt(cameraX, cameraY, cameraZ, cameraX + lookX, cameraY + lookY, cameraZ + lookZ, 0.0f, 1.0f, 0.0f);  // Set camera position and orientation
-    renderCubeMap(); //skybox  // Render the complete cube map (floor, ceiling, and walls)
+    skyBoxMap(); //skybox  // Render the complete cube map (floor, ceiling, and walls)
+
     // Render shapes
-    renderCube();         // Only render cube once
     renderPyramid();   //render pyramid
     renderSphere3D(1.0f, segments, angleCircle, -2.0f, 17.5f, 5.0f); //this is vbo  //size of sphere  number of segments  angle of rotation  x position  y position  z position
 
