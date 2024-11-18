@@ -197,7 +197,7 @@ void initGL() {
 // Initialize pyramid instances in initGL() or separate init function
 void initPyramidInstances() {
     // Create 1000 pyramids with random positions across the skybox
-    for (int i = 0; i < 30; i++) {
+    for (int i = 0; i < 100; i++) {
         PyramidInstance instance;
         instance.position = glm::vec3(
             randomFloat(-500.0f, 500.0f),     // x range within skybox
@@ -215,6 +215,8 @@ void renderPyramid() {
 
     glEnableClientState(GL_VERTEX_ARRAY);
     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+
+
 
     glBindBuffer(GL_ARRAY_BUFFER, pyramidVBOs[0]);
     glVertexPointer(3, GL_FLOAT, 0, 0);
@@ -383,9 +385,7 @@ void skyBoxVBO() {
 
     // Draw floor
     glBindTexture(GL_TEXTURE_2D, skyboxTextures.floor);
-    // glDrawArrays(GL_QUADS, 20, 4);
-    glDrawArrays(GL_TRIANGLE_STRIP, 20, Skybox::subDividedFloorVertices.size() / 3);
-
+    glDrawArrays(GL_QUADS, 20, 4);
     // Cleanup
     glDisableClientState(GL_VERTEX_ARRAY);
     glDisableClientState(GL_TEXTURE_COORD_ARRAY);
@@ -397,9 +397,6 @@ void skyBox(float size, int gridDivisions = 4) {
     textureCoordData.clear();
 
     Skybox::updateCubeVertices(size);
-    Skybox::subdivideFloor(gridDivisions, size);
-    // Apply heightmap with custom amplitude and frequency
-    Skybox::applyHeightmap(0.0f, 1.01f); // Adjust these values for different terrain effects
 
     // Front Wall
     for (size_t i = 0; i < 12; i += 3) {
@@ -507,8 +504,8 @@ void skyBoxMap() {
 
     GLfloat lightPosition[] = { lightPos[0], lightPos[1], lightPos[2], 1.0f };
 
-    // glEnable(GL_LIGHTING);
-    // glEnable(GL_LIGHT0);
+    glEnable(GL_LIGHTING);
+    glEnable(GL_LIGHT0);
 
     GLfloat lightAmbient[] = { 0.5f, 0.5f, 0.5f, 1.0f };
     GLfloat lightDiffuse[] = { 0.5f, 0.5f, 0.5f, 1.0f };
