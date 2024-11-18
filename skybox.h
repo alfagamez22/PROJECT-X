@@ -12,11 +12,11 @@ public:
     static std::vector<float> rightWallVertices;
     static std::vector<float> roofVertices;
     static std::vector<float> floorVertices;
-    static std::vector<float> subdiviedFloorVertices; // New vector for subdivided floor
+    static std::vector<float> subDividedFloorVertices; // New vector for subdivided floor
 
     // Function to subdivide floor into a grid
     static void subdivideFloor(int resolution, float size) {
-        subdiviedFloorVertices.clear();
+        subDividedFloorVertices.clear();
         float halfSize = size / 2.0f;
         float step = size / static_cast<float>(resolution);
 
@@ -27,10 +27,26 @@ public:
                 float z = -halfSize + i * step;
 
                 // Add vertex position (x, y, z)
-                subdiviedFloorVertices.push_back(x);
-                subdiviedFloorVertices.push_back(0.0f); // y is always 0 for floor
-                subdiviedFloorVertices.push_back(z);
+                subDividedFloorVertices.push_back(x);
+                subDividedFloorVertices.push_back(0.0f); // y is always 0 for floor
+                subDividedFloorVertices.push_back(z);
             }
+        }
+    }
+     // Add after subdivideFloor method
+    static void applyHeightmap(float amplitude, float frequency) {
+        for (size_t i = 0; i < subDividedFloorVertices.size(); i += 3) {
+            float x = subDividedFloorVertices[i];
+            float z = subDividedFloorVertices[i + 2];
+
+            // Generate height using sine waves for a desert dune effect
+            float height = amplitude * (
+                sin(x * frequency) * cos(z * frequency) +
+                sin(x * frequency * 0.5f) * cos(z * frequency * 0.5f)
+                );
+
+            // Update Y coordinate (height)
+            subDividedFloorVertices[i + 1] = height;
         }
     }
 
@@ -118,7 +134,7 @@ public:
         updateVertexArray(floorVertices, floor, sizeof(floor));
 
         // Subdivide the floor with a default resolution (can be changed later)
-        subdivideFloor(256, size); // Default 10x10 grid
+        subdivideFloor(10, size); // Default 10x10 grid
     }
 
 private:
@@ -137,7 +153,7 @@ std::vector<float> Skybox::leftWallVertices;
 std::vector<float> Skybox::rightWallVertices;
 std::vector<float> Skybox::roofVertices;
 std::vector<float> Skybox::floorVertices;
-std::vector<float> Skybox::subdiviedFloorVertices;
+std::vector<float> Skybox::subDividedFloorVertices;
 
 #endif // SKYBOX_H
 
