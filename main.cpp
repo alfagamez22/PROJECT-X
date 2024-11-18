@@ -426,8 +426,8 @@ void skyBox(float size, int gridDivisions = 4) {
         vertexData.push_back(Skybox::leftWallVertices[i + 1]);
         vertexData.push_back(Skybox::leftWallVertices[i + 2]);
 
-        float texU = (Skybox::leftWallVertices[i + 2] + size / 2) / size;  // Use Z for U
-        float texV = Skybox::leftWallVertices[i + 1] / size;             // Use Y for V
+        float texU = (Skybox::leftWallVertices[i + 2] + size / 2) / size;
+        float texV = Skybox::leftWallVertices[i + 1] / size;
         textureCoordData.push_back(texU);
         textureCoordData.push_back(texV);
     }
@@ -438,8 +438,8 @@ void skyBox(float size, int gridDivisions = 4) {
         vertexData.push_back(Skybox::rightWallVertices[i + 1]);
         vertexData.push_back(Skybox::rightWallVertices[i + 2]);
 
-        float texU = (Skybox::rightWallVertices[i + 2] + size / 2) / size; // Use Z for U
-        float texV = Skybox::rightWallVertices[i + 1] / size;            // Use Y for V
+        float texU = (Skybox::rightWallVertices[i + 2] + size / 2) / size;
+        float texV = Skybox::rightWallVertices[i + 1] / size;
         textureCoordData.push_back(texU);
         textureCoordData.push_back(texV);
     }
@@ -456,7 +456,8 @@ void skyBox(float size, int gridDivisions = 4) {
         textureCoordData.push_back(texV);
     }
 
-    // Floor with texture coordinates
+    // Floor with texture coordinates and grid lines
+    // First add the main floor vertices
     for (size_t i = 0; i < 12; i += 3) {
         float x = Skybox::floorVertices[i];
         float y = Skybox::floorVertices[i + 1];
