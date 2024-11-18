@@ -1,5 +1,5 @@
 // Pyramid vertices and colors
-float scaling = 40.0f;
+float scaling = 5.0f;
 // Vertex and color arrays for the pyramid
 float pyramidVertices[] = {
     // Front face

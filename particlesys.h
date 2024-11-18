@@ -9,8 +9,8 @@ float calculateSpeedForDepth(float depthFactor) {
     return backLayerSpeed + (frontLayerSpeed - backLayerSpeed) * depthFactor;
 }
 float calculateSizeForDepth(float depthFactor) {
-    const float minSize = 0.1f; // Minimum size of the particles
-    const float maxSize = 0.1f; // Maximum size of the particles
+    const float minSize = 10.1f; // Minimum size of the particles
+    const float maxSize = 10.1f; // Maximum size of the particles
     return minSize + (maxSize - minSize) * depthFactor;
 }
 // Added spawn boundaries for the desert storm effect

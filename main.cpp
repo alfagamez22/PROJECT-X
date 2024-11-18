@@ -26,7 +26,6 @@
 #include "textureloader.cpp" //texture method
 #include "interaction.h" //movement globals
 #include "particlesys.h" //particle system global var
-#include "cube.h" //cube coordinates
 #include "pyramid.h" //pyramid coords
 #include "skybox.h" //skybox float vertices
 
@@ -43,8 +42,8 @@ void mouseMovement(int x, int y);
 void updateCameraDirection();
 void updateMovement();
 void renderPauseMenu();
-void renderCube();
-void renderPyramid();
+void renderPyramid(); //function for pyramid instances
+void initPyramidInstances();
 void renderSphere3D(float radius, int segments, float angle, float xPos, float yPos, float zPos);
 void skyBoxMap();
 void updateParticles();
@@ -56,29 +55,20 @@ void initVBOs(); // Initialize VBOs
 void cleanupVBO(); // Cleanup VBOs
 void cleanup();
 
-
-// Add this with other function prototypes
-void initPyramidInstances();
-
-
 GLuint loadTexture(const char* filename); // Load texture from file
 
 
 /* Global variables */
 //Initialize VBOs
 GLuint pyramidVBOs[2], sphere3DVBOs[2], skyBoxVBOs[4];
-GLuint textureID;
+
+
 // Texture IDs for different surfaces
 struct SkyboxTextures {
-    GLuint floor;
-    GLuint frontWall;
-    GLuint backWall;
-    GLuint leftWall;
-    GLuint rightWall;
-    GLuint roof;
+    GLuint floor, roof, frontWall, backWall, leftWall, rightWall;
 } skyboxTextures;
 
-struct Textures {
+struct Textures { // Textures for different surfaces
     GLuint pyramid;
 } textures;
 
@@ -100,7 +90,6 @@ bool hudEnabled = true;
 //number of segments for the sphere (higher is laggier) but may bug out 20 is best and smooth circle
 const int segments = 10;
 
-
 // Add these global variables at the top for rendercubegrid
 float lightAngle = 80.0f;
 float lightRadius = 400.0f;
@@ -108,23 +97,15 @@ float lightY = 150.0f; //light height
 float lightSpeed = 0.5f;
 int currentCorner = 3;
 
-
 //for logging purposes
 bool resourcesInitialized = false;
 ofstream logFile;
 string logPath;
 
-vector<float> vertexData;
-vector<float> cubeColorData;
-
-//particle system
-vector<Particle> particles;
-
-//texture coordinate data
-vector<float> textureCoordData;
-
-// Create vector to store instances
-vector<PyramidInstance> pyramidInstances;
+vector<float> vertexData; //vertex data for skybox
+vector<Particle> particles; //particle system
+vector<float> textureCoordData; //texture coordinate data
+vector<PyramidInstance> pyramidInstances; //vector to store instances
 
 
 // Main display function
@@ -216,12 +197,12 @@ void initGL() {
 // Initialize pyramid instances in initGL() or separate init function
 void initPyramidInstances() {
     // Create 1000 pyramids with random positions across the skybox
-    for (int i = 0; i < 100; i++) {
+    for (int i = 0; i < 30; i++) {
         PyramidInstance instance;
         instance.position = glm::vec3(
-            randomFloat(-5500.0f, 5500.0f),     // x range within skybox
-            randomFloat(10.0f, 27.5f),       // y range for varied heights
-            randomFloat(-5500.0f, 5500.0f)      // z range within skybox
+            randomFloat(-500.0f, 500.0f),     // x range within skybox
+            randomFloat(10.0f, 37.5f),       // y range for varied heights
+            randomFloat(-500.0f, 500.0f)      // z range within skybox
         );
         instance.scale = glm::vec3(randomFloat(1.0f, 10.0f)); // Random sizes
         pyramidInstances.push_back(instance);
@@ -493,7 +474,7 @@ void skyBox(float size, int gridDivisions = 4) {
 }
 void skyBoxMap() {
     float position[3] = { 0.0f, 16.0f, 0.0f };
-    float size = 10024.0f;
+    float size = 1024.0f;
     int gridDivisions = 36;
     float halfSize = size / 2.0f;
 
@@ -976,16 +957,16 @@ void reshape(GLsizei width, GLsizei height) { //perspective projection
     // Adjusted perspective parameters for better cube visualization
     // Increased FOV to 65 for better cube viewing
     // Far plane increased to 10000 units (it renders this nth units)(frustrum culling) to see cubes from greater distances 
-    gluPerspective(60.0f, aspect, 0.5f, 10000.0f);
+    gluPerspective(45.0f, aspect, 0.5f, 10000.0f);
 
     // Enable necessary rendering features
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL); // Less than or equal depth comparison for better depth precision
 
-    //Enable back face culling for better cube rendering (frustrum culling)
-    //glEnable(GL_CULL_FACE);
-    //glCullFace(GL_BACK);
-    //glCullFace(GL_FRONT);
+    // //Enable back face culling for better cube rendering (frustrum culling)
+    // glEnable(GL_CULL_FACE);
+    // glCullFace(GL_BACK);
+    // glCullFace(GL_FRONT);
 
     // Enable line smoothing for better grid lines
     glEnable(GL_LINE_SMOOTH);
