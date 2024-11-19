@@ -33,3 +33,32 @@ float pyramidTextureCoords[] = {
     // Bottom face
     0.0f, 0.0f,    1.0f, 0.0f,    1.0f, 1.0f,    0.0f, 1.0f  // Square
 };
+
+// Normal vectors for the pyramid faces
+static const GLfloat pyramidNormals[] = {
+    // Front face
+    0.0f, 0.5f, 1.0f,
+    0.0f, 0.5f, 1.0f,
+    0.0f, 0.5f, 1.0f,
+    
+    // Right face
+    1.0f, 0.5f, 0.0f,
+    1.0f, 0.5f, 0.0f,
+    1.0f, 0.5f, 0.0f,
+    
+    // Back face
+    0.0f, 0.5f, -1.0f,
+    0.0f, 0.5f, -1.0f,
+    0.0f, 0.5f, -1.0f,
+    
+    // Left face
+    -1.0f, 0.5f, 0.0f,
+    -1.0f, 0.5f, 0.0f,
+    -1.0f, 0.5f, 0.0f,
+    
+    // Base (bottom face)
+    0.0f, -1.0f, 0.0f,
+    0.0f, -1.0f, 0.0f,
+    0.0f, -1.0f, 0.0f,
+    0.0f, -1.0f, 0.0f
+};

@@ -9,8 +9,8 @@ float calculateSpeedForDepth(float depthFactor) {
     return backLayerSpeed + (frontLayerSpeed - backLayerSpeed) * depthFactor;
 }
 float calculateSizeForDepth(float depthFactor) {
-    const float minSize = 10.1f; // Minimum size of the particles
-    const float maxSize = 10.1f; // Maximum size of the particles
+    const float minSize = 20.1f; // Minimum size of the particles
+    const float maxSize = 20.1f; // Maximum size of the particles
     return minSize + (maxSize - minSize) * depthFactor;
 }
 // Added spawn boundaries for the desert storm effect
@@ -19,7 +19,7 @@ const float leftBoundary = 10.0f;   // Where particles get recycled -300
 const float verticalRange = 10.0f;    // Height range for particles 300
 const float depthRange = 50.0f;       // Depth range for particles when lower depth fps dips 50
 //const float particleSize = 0.5f;      // Size of the particles
-const int maxParticles = 500; // Max particles in the system
+const int maxParticles = 300; // Max particles in the system
 //const float gravity = -9.81f; // Gravity constant (negative to pull downward) good for rain particle system for later
 const float pi = M_PI;  // Using the irrational value of pi for randomness
 float deltaT = 0.016f; // Time step (assuming 60 FPS)

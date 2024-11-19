@@ -44,12 +44,14 @@ void updateMovement();
 void renderPauseMenu();
 void renderPyramid(); //function for pyramid instances
 void initPyramidInstances();
-void renderSphere3D(float radius, int segments, float angle, float xPos, float yPos, float zPos);
+void renderSun(float radius, int segments, float angle, float xPos, float yPos, float zPos);
 void skyBoxMap();
 void updateParticles();
 void renderParticles();
 void displayCoordinates(float coordX, float coordY, float coordZ);
 void renderHUD();
+void renderSunCore(int segments);
+void simulateEnvironmentalLightEffects(float lightX, float lightY, float lightZ, float lightRadius);
 
 void initVBOs(); // Initialize VBOs
 void cleanupVBO(); // Cleanup VBOs
@@ -60,11 +62,10 @@ GLuint loadTexture(const char* filename); // Load texture from file
 
 /* Global variables */
 //Initialize VBOs
-GLuint pyramidVBOs[2], sphere3DVBOs[2], skyBoxVBOs[4];
+GLuint pyramidVBOs[2], sunVBOs[2], skyBoxVBOs[4];
 
 
-// Texture IDs for different surfaces
-struct SkyboxTextures {
+struct SkyboxTextures { // Texture IDs for different surfaces
     GLuint floor, roof, frontWall, backWall, leftWall, rightWall;
 } skyboxTextures;
 
@@ -72,13 +73,18 @@ struct Textures { // Textures for different surfaces
     GLuint pyramid;
 } textures;
 
-
-// Add structure for pyramid instances
-struct PyramidInstance {
+struct PyramidInstance { // Add structure for pyramid instances
     glm::vec3 position;
     float rotation;
     glm::vec3 scale;
 };
+
+//Sun Variables
+float glowIntensity = 1.0f;
+float glowSpeed = 0.05f;
+float glowMin = 0.1f;
+float glowMax = 1.0f;
+bool glowIncreasing = true;
 
 //Draw fps
 chrono::time_point<chrono::high_resolution_clock> startTime;
@@ -88,14 +94,7 @@ float fps = 0.0f;
 bool hudEnabled = true;
 
 //number of segments for the sphere (higher is laggier) but may bug out 20 is best and smooth circle
-const int segments = 10;
-
-// Add these global variables at the top for rendercubegrid
-float lightAngle = 80.0f;
-float lightRadius = 400.0f;
-float lightY = 150.0f; //light height
-float lightSpeed = 0.5f;
-int currentCorner = 3;
+const int segments = 20;
 
 //for logging purposes
 bool resourcesInitialized = false;
@@ -208,21 +207,26 @@ void initPyramidInstances() {
         pyramidInstances.push_back(instance);
     }
 }
-
 void renderPyramid() {
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, textures.pyramid);
 
+    // Enable lighting for the pyramid
+    glEnable(GL_LIGHTING);
+    glEnable(GL_LIGHT2);
+
     glEnableClientState(GL_VERTEX_ARRAY);
     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-
-
+    glEnableClientState(GL_NORMAL_ARRAY);  // Enable normal array for lighting
 
     glBindBuffer(GL_ARRAY_BUFFER, pyramidVBOs[0]);
     glVertexPointer(3, GL_FLOAT, 0, 0);
 
     glBindBuffer(GL_ARRAY_BUFFER, pyramidVBOs[1]);
     glTexCoordPointer(2, GL_FLOAT, 0, 0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, pyramidVBOs[2]);
+    glNormalPointer(GL_FLOAT, 0, 0);
 
     // Render each instance
     for (const auto& instance : pyramidInstances) {
@@ -238,106 +242,185 @@ void renderPyramid() {
 
     glDisableClientState(GL_VERTEX_ARRAY);
     glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    glDisableClientState(GL_NORMAL_ARRAY);
     glDisable(GL_TEXTURE_2D);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_LIGHT2);
 }
 void pyramidVBO() {
-    // Pyramid VBO setup
-    glGenBuffers(2, pyramidVBOs);
+    // Generate 3 VBOs for vertices, textures, and normals
+    glGenBuffers(3, pyramidVBOs);
 
     // Pyramid vertex VBO
     glBindBuffer(GL_ARRAY_BUFFER, pyramidVBOs[0]);
     glBufferData(GL_ARRAY_BUFFER, sizeof(pyramidVertices), pyramidVertices, GL_STATIC_DRAW);
-    // Pyramid color VBO
+
+    // Pyramid texture VBO
     glBindBuffer(GL_ARRAY_BUFFER, pyramidVBOs[1]);
     glBufferData(GL_ARRAY_BUFFER, sizeof(pyramidTextureCoords), pyramidTextureCoords, GL_STATIC_DRAW);
+
+    // Pyramid normals VBO
+    glBindBuffer(GL_ARRAY_BUFFER, pyramidVBOs[2]);
+    glNormalPointer(GL_FLOAT, 0, pyramidNormals);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(pyramidNormals), pyramidNormals, GL_STATIC_DRAW);
 }
 
-void renderSphere3D(float radius, int segments, float angle, float xPos, float yPos, float zPos) {
+void renderSun(float radius, int segments, float angle, float xPos, float yPos, float zPos) {
+    // Update glow intensity
+    if (glowIncreasing) {
+        glowIntensity += glowSpeed * 0.016f;
+        if (glowIntensity >= glowMax) {
+            glowIncreasing = false;
+        }
+    }
+    else {
+        glowIntensity -= glowSpeed * 0.016f;
+        if (glowIntensity <= glowMin) {
+            glowIncreasing = true;
+        }
+    }
+    // Set up enhanced sun lighting with pulsating effect
+    GLfloat sunLight[] = { xPos, yPos, zPos, 1.0f };
+    GLfloat sunAmbient[] = { 0.9f * glowIntensity, 0.8f * glowIntensity, 0.7f * glowIntensity, 1.0f };
+    GLfloat sunDiffuse[] = { 1.0f * glowIntensity, 0.95f * glowIntensity, 0.8f * glowIntensity, 1.0f };
+    GLfloat sunSpecular[] = { 1.0f * glowIntensity, 1.0f * glowIntensity, 0.9f * glowIntensity, 1.0f };
+    GLfloat sunEmission[] = { 0.9f * glowIntensity, 0.85f * glowIntensity, 0.7f * glowIntensity, 1.0f };
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+
+    glEnable(GL_LIGHT1);
+    glLightfv(GL_LIGHT1, GL_POSITION, sunLight);
+    glLightfv(GL_LIGHT1, GL_AMBIENT, sunAmbient);
+    glLightfv(GL_LIGHT1, GL_DIFFUSE, sunDiffuse);
+    glLightfv(GL_LIGHT1, GL_SPECULAR, sunSpecular);
+
+    glLightf(GL_LIGHT1, GL_LINEAR_ATTENUATION, 0.001f);
+    glLightf(GL_LIGHT1, GL_QUADRATIC_ATTENUATION, 0.0001f);
+
+    glMaterialfv(GL_FRONT, GL_EMISSION, sunEmission);
+    glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, sunDiffuse);
+    glMaterialfv(GL_FRONT, GL_SPECULAR, sunSpecular);
+    glMaterialf(GL_FRONT, GL_SHININESS, 100.0f);
+
     glPushMatrix();
     glTranslatef(xPos, yPos, zPos);
     glScalef(radius, radius, radius);
-
     glRotatef(angle, 1.0f, 0.0f, 0.0f);
     glRotatef(angle, 0.0f, 1.0f, 0.0f);
 
     glEnableClientState(GL_VERTEX_ARRAY);
     glEnableClientState(GL_COLOR_ARRAY);
 
-    // Bind VBOs and set up pointers
-    glBindBuffer(GL_ARRAY_BUFFER, sphere3DVBOs[0]);
+    glBindBuffer(GL_ARRAY_BUFFER, sunVBOs[0]);
     glVertexPointer(3, GL_FLOAT, 0, 0);
-
-    glBindBuffer(GL_ARRAY_BUFFER, sphere3DVBOs[1]);
+    glBindBuffer(GL_ARRAY_BUFFER, sunVBOs[1]);
     glColorPointer(3, GL_FLOAT, 0, 0);
 
-    // Render sphere
+    renderSunCore(segments);
+    // Draw outer glow layer with pulsating alpha
+    glPushMatrix();
+    glScalef(1.2f, 1.2f, 1.2f);
+    glColor4f(1.0f * glowIntensity, 0.8f * glowIntensity, 0.0f, 0.3f * glowIntensity);
+    renderSunCore(segments);
+    glPopMatrix();
+
+    glDisableClientState(GL_VERTEX_ARRAY);
+    glDisableClientState(GL_COLOR_ARRAY);
+    glPopMatrix();
+
+    simulateEnvironmentalLightEffects(xPos, yPos, zPos, radius);
+
+    glDisable(GL_BLEND);
+    glDisable(GL_LIGHT1);
+}
+void sunVBO() { // Helper function to render sphere core
+    glGenBuffers(3, sunVBOs);  // Changed to 3 for normals
+    const int numVertices = (segments + 1) * (segments + 1);
+    float sphereVertices[numVertices * 3];
+    float sphereColors[numVertices * 3];
+    float sphereNormals[numVertices * 3];
+    int index = 0;
+
+    for (int lat = 0; lat <= segments; ++lat) {
+        float theta = lat * M_PI / segments;
+        for (int lon = 0; lon <= segments; ++lon) {
+            float phi = lon * 2.0f * M_PI / segments;
+
+            // Vertex positions
+            sphereVertices[index * 3] = sin(theta) * cos(phi);
+            sphereVertices[index * 3 + 1] = sin(theta) * sin(phi);
+            sphereVertices[index * 3 + 2] = cos(theta);
+
+            // Normals (same as vertices for a sphere)
+            sphereNormals[index * 3] = sphereVertices[index * 3];
+            sphereNormals[index * 3 + 1] = sphereVertices[index * 3 + 1];
+            sphereNormals[index * 3 + 2] = sphereVertices[index * 3 + 2];
+
+            // Sun colors
+            float intensity = 0.5f + 0.5f * sin(index * 0.2f);
+            sphereColors[index * 3] = 1.0f * intensity;
+            sphereColors[index * 3 + 1] = 0.8f * intensity;
+            sphereColors[index * 3 + 2] = 0.2f * intensity;
+
+            ++index;
+        }
+    }
+
+    // Upload vertex data
+    glBindBuffer(GL_ARRAY_BUFFER, sunVBOs[0]);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(sphereVertices), sphereVertices, GL_STATIC_DRAW);
+
+    // Upload color data
+    glBindBuffer(GL_ARRAY_BUFFER, sunVBOs[1]);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(sphereColors), sphereColors, GL_STATIC_DRAW);
+
+    // Upload normal data
+    glBindBuffer(GL_ARRAY_BUFFER, sunVBOs[2]);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(sphereNormals), sphereNormals, GL_STATIC_DRAW);
+}
+void renderSunCore(int segments) {
     for (int lat = 0; lat < segments; ++lat) {
         glBegin(GL_TRIANGLE_STRIP);
         for (int lon = 0; lon <= segments; ++lon) {
             int p1 = lat * (segments + 1) + lon;
             int p2 = (lat + 1) * (segments + 1) + lon;
-
             glArrayElement(p1);
             glArrayElement(p2);
         }
         glEnd();
     }
-
-    // Disable client states and unbind VBOs
-    glDisableClientState(GL_VERTEX_ARRAY);
-    glDisableClientState(GL_COLOR_ARRAY);
-
-    // Restore the original state
-    glPopAttrib();  // Restore the original state
-
-    glPushMatrix(); // Save the modelview matrix
-    glPopMatrix(); // Restore the modelview matrix
 }
-void sphere3dVBO() {
-    //Sphere3D VBO setup
-    glGenBuffers(2, sphere3DVBOs);
-    // Generate sphere vertex data and color data before sending them to the VBO
-    const int numVertices = (segments + 1) * (segments + 1);
-    float sphereVertices[numVertices * 3];
-    float sphereColors[numVertices * 3];
-    int index = 0;
+void simulateEnvironmentalLightEffects(float lightX, float lightY, float lightZ, float lightRadius) {
+    float influenceRadius = lightRadius * 5.0f;
 
-    for (int lat = 0; lat <= segments; ++lat) {
-        float theta = lat * M_PI / segments; // Latitude angle
-        for (int lon = 0; lon <= segments; ++lon) {
-            float phi = lon * 2.0f * M_PI / segments; // Longitude angle
+    GLfloat globalAmbient[] = {
+        0.2f + (lightY / 500.0f),
+        0.2f + (lightY / 500.0f),
+        0.1f + (lightY / 1000.0f),
+        1.0f
+    };
+    glLightModelfv(GL_LIGHT_MODEL_AMBIENT, globalAmbient);
 
-            // Calculate x, y, z positions for the sphere vertex
-            sphereVertices[index * 3] = sin(theta) * cos(phi); // x
-            sphereVertices[index * 3 + 1] = sin(theta) * sin(phi); // y
-            sphereVertices[index * 3 + 2] = cos(theta); // z
+    float colorTemperature = (lightY > 250.0f) ? 6500.0f :
+        (lightY > 100.0f) ? 3000.0f : 2000.0f;
 
-            // Color pattern for beach ball
-            if (lon % 3 == 0) {  // Alternate colors
-                sphereColors[index * 3] = 1.0f;  // Red component
-                sphereColors[index * 3 + 1] = 1.0f;  // Green component
-                sphereColors[index * 3 + 2] = 1.0f;  // Blue component
-            }
-            else if (lon % 3 == 1) {
-                sphereColors[index * 3] = 1.0f;  // Red component
-                sphereColors[index * 3 + 1] = 1.0f;  // Green component (Yellow)
-                sphereColors[index * 3 + 2] = 1.0f;  // Blue component
-            }
-            else {
-                sphereColors[index * 3] = 1.0f;  // Red component
-                sphereColors[index * 3 + 1] = 1.0f;  // Green component
-                sphereColors[index * 3 + 2] = 1.0f;  // Blue component
-            }
-            ++index;
+    for (auto& pyramid : pyramidInstances) {
+        float distance = sqrt(
+            pow(pyramid.position.x - lightX, 2) +
+            pow(pyramid.position.y - lightY, 2) +
+            pow(pyramid.position.z - lightZ, 2)
+        );
+
+        if (distance < influenceRadius) {
+            float intensity = 1.0f - (distance / influenceRadius);
+            GLfloat dynamicAmbient[] = { 0.2f * intensity, 0.2f * intensity, 0.2f * intensity, 1.0f };
+            GLfloat dynamicDiffuse[] = { intensity, intensity * 0.9f, intensity * 0.7f, 1.0f };
+
+            glMaterialfv(GL_FRONT, GL_AMBIENT, dynamicAmbient);
+            glMaterialfv(GL_FRONT, GL_DIFFUSE, dynamicDiffuse);
         }
     }
-    // Sphere vertex VBO
-    glBindBuffer(GL_ARRAY_BUFFER, sphere3DVBOs[0]);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(sphereVertices), sphereVertices, GL_STATIC_DRAW);
-
-    // Sphere color VBO
-    glBindBuffer(GL_ARRAY_BUFFER, sphere3DVBOs[1]);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(sphereColors), sphereColors, GL_STATIC_DRAW);
 }
 
 void skyBoxVBO() {
@@ -481,50 +564,8 @@ void skyBoxMap() {
     int gridDivisions = 36;
     float halfSize = size / 2.0f;
 
-    // Define corner positions
-    float corners[4][3] = {
-        {-halfSize, lightY + halfSize, -halfSize},
-        {halfSize, lightY + halfSize, -halfSize},
-        {halfSize, lightY + halfSize, halfSize},
-        {-halfSize, lightY + halfSize, halfSize}
-    };
-
-    // Calculate interpolated position between corners
-    int nextCorner = (currentCorner + 1) % 4;
-    float t = fmod(lightAngle, 90.0f) / 90.0f;
-
-    // Interpolate position
-    float lightPos[3];
-    for (int i = 0; i < 3; i++) {
-        lightPos[i] = corners[currentCorner][i] * (1.0f - t) +
-            corners[nextCorner][i] * t;
-        // Scale by light radius
-        lightPos[i] *= (lightRadius / halfSize);
-    }
-
-    GLfloat lightPosition[] = { lightPos[0], lightPos[1], lightPos[2], 1.0f };
-
     glEnable(GL_LIGHTING);
     glEnable(GL_LIGHT0);
-
-    GLfloat lightAmbient[] = { 0.5f, 0.5f, 0.5f, 1.0f };
-    GLfloat lightDiffuse[] = { 0.5f, 0.5f, 0.5f, 1.0f };
-    GLfloat lightSpecular[] = { 1.0f, 1.0f, 1.0f, 1.0f };
-
-    glLightfv(GL_LIGHT0, GL_POSITION, lightPosition);
-    glLightfv(GL_LIGHT0, GL_AMBIENT, lightAmbient);
-    glLightfv(GL_LIGHT0, GL_DIFFUSE, lightDiffuse);
-    glLightfv(GL_LIGHT0, GL_SPECULAR, lightSpecular);
-
-    GLfloat materialAmbient[] = { 0.2f, 0.2f, 0.2f, 1.0f };
-    GLfloat materialDiffuse[] = { 0.3f, 0.3f, 0.3f, 1.0f };
-    GLfloat materialSpecular[] = { 0.3f, 0.3f, 0.3f, 1.0f };
-    GLfloat materialShininess[] = { 100.0f };
-
-    glMaterialfv(GL_FRONT, GL_AMBIENT, materialAmbient);
-    glMaterialfv(GL_FRONT, GL_DIFFUSE, materialDiffuse);
-    glMaterialfv(GL_FRONT, GL_SPECULAR, materialSpecular);
-    glMaterialfv(GL_FRONT, GL_SHININESS, materialShininess);
 
     skyBox(size, gridDivisions);
 
@@ -533,32 +574,20 @@ void skyBoxMap() {
         glTranslatef(position[0], position[1], position[2]);
         glEnable(GL_POLYGON_OFFSET_FILL);
         glPolygonOffset(1.0f, 1.0f);
-
-        // Only call skyBoxVBO here
         skyBoxVBO();
-
         glDisable(GL_POLYGON_OFFSET_FILL);
     }
     glPopMatrix();
 
     glDisable(GL_LIGHTING);
     glDisable(GL_LIGHT0);
-
-    if (!isPaused) {
-        lightAngle += lightSpeed;
-        if (lightAngle >= 360.0f) {
-            lightAngle = 0.0f;
-            currentCorner = 0;
-        }
-        else if (fmod(lightAngle, 90.0f) < lightSpeed) {
-            currentCorner = (currentCorner + 1) % 4;
-        }
-    }
 }
+
+
 
 void initVBOs() {
     pyramidVBO();
-    sphere3dVBO();
+    sunVBO();
     //skyBoxVBO();
 
     // Unbind buffer
@@ -571,30 +600,29 @@ void initVBOs() {
 void cleanupVBO() {
     if (resourcesInitialized) {
         if (glutGetWindow()) {  // Ensure a valid OpenGL context
-            // Cleanup pyramid VBOs
-            if (pyramidVBOs[0] || pyramidVBOs[1]) {
-                glDeleteBuffers(2, pyramidVBOs);
+            // Cleanup sphere VBOs
+            if (pyramidVBOs[0] || pyramidVBOs[1] || pyramidVBOs[2]) {// Cleanup pyramid VBOs
+                glDeleteBuffers(3, pyramidVBOs);
                 logMessage("Pyramid VBO resources successfully deleted.\n");
             }
             else {
                 logMessage("Pyramid VBO resources were not initialized or already deleted.\n");
             }
-            if (textures.pyramid) {
+            if (textures.pyramid) { // Cleanup pyramid texture
                 glDeleteTextures(1, &textures.pyramid);
                 logMessage("Pyramid texture successfully deleted.\n");
             }
             else {
                 logMessage("Pyramid texture was not initialized or already deleted.\n");
             }
-            // Cleanup sphere VBOs
-            if (sphere3DVBOs[0] || sphere3DVBOs[1]) {
-                glDeleteBuffers(2, sphere3DVBOs);
-                logMessage("Sphere VBO resources successfully deleted.\n");
+            if (sunVBOs[0] || sunVBOs[1]) {  // Cleanup sun VBOs
+                glDeleteBuffers(2, sunVBOs);
+                logMessage("Sun VBO resources successfully deleted.\n");
             }
             else {
-                logMessage("Sphere VBO resources were not initialized or already deleted.\n");
+                logMessage("Sun VBO resources were not initialized or already deleted.\n");
             }
-            if (skyboxTextures.floor || skyboxTextures.frontWall || skyboxTextures.backWall || skyboxTextures.leftWall || skyboxTextures.rightWall || skyboxTextures.roof) {
+            if (skyboxTextures.floor || skyboxTextures.frontWall || skyboxTextures.backWall || skyboxTextures.leftWall || skyboxTextures.rightWall || skyboxTextures.roof) { // Cleanup skybox textures
                 GLuint textures[] = { skyboxTextures.floor, skyboxTextures.frontWall, skyboxTextures.backWall, skyboxTextures.leftWall, skyboxTextures.rightWall, skyboxTextures.roof };
                 glDeleteTextures(6, textures);
                 logMessage("Texture resources successfully deleted.\n");
@@ -602,7 +630,7 @@ void cleanupVBO() {
             else {
                 logMessage("Texture resources were not initialized or already deleted.\n");
             }
-            if (skyBoxVBOs[0] || skyBoxVBOs[1]) {
+            if (skyBoxVBOs[0] || skyBoxVBOs[1]) { // Cleanup skybox VBOs
                 glDeleteBuffers(2, skyBoxVBOs);
                 logMessage("Render Cube with Grid VBO resources successfully deleted.\n");
             }
@@ -924,15 +952,10 @@ void updateParticles() {
     }
 }
 void renderParticles() {
-    // Sort particles by depth for proper rendering
-    sort(particles.begin(), particles.end(),
-        [](const Particle& a, const Particle& b) {
-            return a.position[2] > b.position[2];
-        });
-
     for (int i = 0; i < particles.size(); ++i) {
         if (particles[i].isActive) {
-            renderSphere3D(particles[i].size, segments, 1.0f, particles[i].position[0], particles[i].position[1], particles[i].position[2]);
+            // Render each particle as a small sphere (use your existing render function) tis part we render our spheres
+            (1.0f, segments, 0.0f, particles[i].position[0], particles[i].position[1], particles[i].position[2]);
         }
     }
 }
@@ -1115,8 +1138,7 @@ void display() {
 
     // Render shapes
     renderPyramid();   //render pyramid
-    renderSphere3D(1.0f, segments, angleCircle, -2.0f, 17.5f, 5.0f); //this is vbo  //size of sphere  number of segments  angle of rotation  x position  y position  z position
-
+    renderSun(15.0f, segments, angleCircle, -2.0f, 307.5f, 5.0f);
     renderPauseMenu(); // Render pause menu overlay if game is paused
     renderFPS(); //fps
     displayCoordinates(cameraX, cameraY, cameraZ); // Display the coordinates of the camera

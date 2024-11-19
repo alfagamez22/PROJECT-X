@@ -19222,6 +19222,7 @@ void displayCoordinates(float coordX, float coordY, float coordZ) {
 
     // Render the text at the calculated position
     glColor3f(1.0f, 1.0f, 1.0f);  // Set text color to white
+    glColor3f(1.0f, 1.0f, 1.0f);  // Set text color to white
     renderText(xPos, yPos, coordText);
 
     glPopMatrix();
