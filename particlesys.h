@@ -1,11 +1,11 @@
-//particle system
+//particle system GLOBALS
 // Random function helper with more granularity
 float randomFloat(float min, float max) {
     return min + static_cast<float>(rand()) / (static_cast<float>(RAND_MAX / (max - min)));
 }
 float calculateSpeedForDepth(float depthFactor) {
-    const float frontLayerSpeed = 15.0f; // Speed of the front layer
-    const float backLayerSpeed = 15.0f; // Speed of the back layer
+    const float frontLayerSpeed = 150.0f; // Speed of the front layer
+    const float backLayerSpeed = 150.0f; // Speed of the back layer
     return backLayerSpeed + (frontLayerSpeed - backLayerSpeed) * depthFactor;
 }
 float calculateSizeForDepth(float depthFactor) {
