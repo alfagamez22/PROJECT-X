@@ -16,14 +16,8 @@
 
 #include <fstream>
 #include <ctime>
-#include <direct.h> //for _getcwd
+#include <direct.h> //for _getcwd for manipulating file
 #include <iostream>
-
-#include "textureloader.cpp" //texture method
-#include "interaction.h" //movement globals
-#include "particlesys.h" //particle system global var
-#include "pyramid.h" //pyramid coords
-#include "skybox.h" //skybox float vertices
 
 using namespace std;
 
@@ -42,8 +36,6 @@ void renderPyramid(); //function for pyramid instances
 void initPyramidInstances();
 void renderSun(float radius, int segments, float angle, float xPos, float yPos, float zPos);
 void skyBoxMap();
-void updateParticles();
-void renderParticles();
 void displayCoordinates(float coordX, float coordY, float coordZ);
 void renderHUD();
 void renderSunCore(int segments);
@@ -53,23 +45,44 @@ void initVBOs(); // Initialize VBOs
 void cleanupVBO(); // Cleanup VBOs
 void cleanup();
 
-GLuint loadTexture(const char* filename); // Load texture from file
-
 
 /* Global variables */
 //Initialize VBOs
-GLuint pyramidVBOs[2], sunVBOs[2], skyBoxVBOs[4];
+GLuint pyramidVBOs[3], sunVBOs[3], skyBoxVBOs[4];
 
+//Texture Loader
+GLuint loadTexture(const char* filename) {
+    GLuint textureID;
+    glGenTextures(1, &textureID);
+    glBindTexture(GL_TEXTURE_2D, textureID);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    int width, height, nrChannels;
+    unsigned char* data = stbi_load(filename, &width, &height, &nrChannels, 0);
+
+    if (data) {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+        glGenerateMipmap(GL_TEXTURE_2D);
+    }
+    else {
+        printf("Failed to load texture: %s\n", filename);
+    }
+
+    stbi_image_free(data);
+    return textureID;
+}
 
 struct SkyboxTextures { // Texture IDs for different surfaces
     GLuint floor, roof, frontWall, backWall, leftWall, rightWall;
 } skyboxTextures;
-
 struct Textures { // Textures for different surfaces
     GLuint pyramid;
 } textures;
-
-struct PyramidInstance {
+struct PyramidInstance { //Instantiate the number of pyramids with randomness in x y z coordinates
     struct Vec3 {
         float x, y, z;
     };
@@ -77,6 +90,43 @@ struct PyramidInstance {
     float rotation;
     Vec3 scale;
 };
+float randomFloat(float min, float max) { //helper function for randomizing pyramid instances
+    return min + static_cast<float>(rand()) / (static_cast<float>(RAND_MAX / (max - min)));
+}
+float anglePyramid = 0.0f;
+float angleCube = 0.0f;
+float angleCircle = 0.0f;  // Rotation angle for the circle
+
+int refreshMills = 5; // Refresh interval in milliseconds the lower the better maximum 5 minimum 25 (15 best) to avoid visual bugs
+
+//Camera Dimensions
+// Camera position and orientation starting
+float cameraX = 0.0f;
+float cameraY = 17.5f;
+float cameraZ = 10.0f;
+float cameraSpeed = 2.1f; //can be adjusted the higher the faster 0.1 is the best it was 0.3 kinda quick
+// Camera angles
+float yaw = -90.0f;
+float pitch = 0.0f;
+float lastX = 320.0f;
+float lastY = 240.0f;
+float sensitivity = 0.1f;
+// Camera direction vectors
+float lookX = 0.0f;
+float lookY = 0.0f;
+float lookZ = -1.0f;
+
+// Movement flags and velocity
+bool keyStates[256] = { false };
+float velocityX = 0.0f;
+float velocityZ = 0.0f;
+float maxVelocity = 4.15f;
+float acceleration = 0.05f; //inertia //0.05 is the best
+float deceleration = 0.1f; //inertia //0.01 is the best
+
+// Window state
+bool isPaused = false;
+bool firstMouse = true;
 
 //Sun Variables
 float glowIntensity = 1.0f;
@@ -100,10 +150,151 @@ bool resourcesInitialized = false;
 ofstream logFile;
 string logPath;
 
+//PYRAMID COORDINATES
+// Pyramid vertices and colors
+float scaling = 5.0f;
+// Vertex and color arrays for the pyramid
+float pyramidVertices[] = {
+    // Front face triangle
+    0.0f, scaling * 1.0f, 0.0f,  -scaling * 1.0f, -scaling * 1.0f, scaling * 1.0f,  scaling * 1.0f, -scaling * 1.0f, scaling * 1.0f,
+    // Right face triangle
+    0.0f, scaling * 1.0f, 0.0f,  scaling * 1.0f, -scaling * 1.0f, scaling * 1.0f,  scaling * 1.0f, -scaling * 1.0f, -scaling * 1.0f,
+    // Back face triangle
+    0.0f, scaling * 1.0f, 0.0f,  scaling * 1.0f, -scaling * 1.0f, -scaling * 1.0f,  -scaling * 1.0f, -scaling * 1.0f, -scaling * 1.0f,
+    // Left face triangle
+    0.0f, scaling * 1.0f, 0.0f,  -scaling * 1.0f, -scaling * 1.0f, -scaling * 1.0f,  -scaling * 1.0f, -scaling * 1.0f, scaling * 1.0f,
+    // Bottom face square
+    -scaling * 1.0f, -scaling * 1.0f,  scaling * 1.0f,
+     scaling * 1.0f, -scaling * 1.0f,  scaling * 1.0f,
+     scaling * 1.0f, -scaling * 1.0f, -scaling * 1.0f,
+    -scaling * 1.0f, -scaling * 1.0f, -scaling * 1.0f
+};
+float pyramidTextureCoords[] = {
+    // Front face triangle
+    0.5f, 1.0f,    0.0f, 0.0f,    1.0f, 0.0f,
+    // Right face triangle
+    0.5f, 1.0f,    0.0f, 0.0f,    1.0f, 0.0f,
+    // Back face triangle
+    0.5f, 1.0f,    0.0f, 0.0f,    1.0f, 0.0f,
+    // Left face triangle
+    0.5f, 1.0f,    0.0f, 0.0f,    1.0f, 0.0f,
+    // Bottom face square
+    0.0f, 0.0f,    1.0f, 0.0f,    1.0f, 1.0f,    0.0f, 1.0f
+};
+//Normal vectors for the pyramid faces on how light reflects each of the face
+static const GLfloat pyramidNormals[] = {
+    // Front face
+    0.0f, 0.5f, 1.0f,
+    0.0f, 0.5f, 1.0f,
+    0.0f, 0.5f, 1.0f,
+    // Right face
+    1.0f, 0.5f, 0.0f,
+    1.0f, 0.5f, 0.0f,
+    1.0f, 0.5f, 0.0f,
+    // Back face
+    0.0f, 0.5f, -1.0f,
+    0.0f, 0.5f, -1.0f,
+    0.0f, 0.5f, -1.0f,
+    // Left face
+    -1.0f, 0.5f, 0.0f,
+    -1.0f, 0.5f, 0.0f,
+    -1.0f, 0.5f, 0.0f,
+    // Base (bottom face)
+    0.0f, -1.0f, 0.0f,
+    0.0f, -1.0f, 0.0f,
+    0.0f, -1.0f, 0.0f,
+    0.0f, -1.0f, 0.0f
+};
+
 vector<float> vertexData; //vertex data for skybox
-vector<Particle> particles; //particle system
 vector<float> textureCoordData; //texture coordinate data
 vector<PyramidInstance> pyramidInstances; //vector to store instances
+
+class Skybox {
+public:
+    static vector<float> frontWallVertices;
+    static vector<float> backWallVertices;
+    static vector<float> leftWallVertices;
+    static vector<float> rightWallVertices;
+    static vector<float> roofVertices;
+    static vector<float> floorVertices;
+
+    static void updateCubeVertices(float size) {
+        float halfSize = size / 2.0f;
+
+        // Front wall vertices
+        float frontWall[] = {
+            -halfSize, 0.0f,  halfSize,
+             halfSize, 0.0f,  halfSize,
+             halfSize,  halfSize,  halfSize,
+            -halfSize,  halfSize,  halfSize
+        };
+
+        // Back wall vertices
+        float backWall[] = {
+            -halfSize, 0.0f, -halfSize,
+            -halfSize,  halfSize, -halfSize,
+             halfSize,  halfSize, -halfSize,
+             halfSize, 0.0f, -halfSize
+        };
+
+        // Left wall vertices
+        float leftWall[] = {
+            -halfSize, 0.0f, -halfSize,
+            -halfSize, 0.0f,  halfSize,
+            -halfSize,  halfSize,  halfSize,
+            -halfSize,  halfSize, -halfSize
+        };
+
+        // Right wall vertices
+        float rightWall[] = {
+            halfSize, 0.0f, -halfSize,
+            halfSize,  halfSize, -halfSize,
+            halfSize,  halfSize,  halfSize,
+            halfSize, 0.0f,  halfSize
+        };
+
+        // Roof vertices
+        float roof[] = {
+            -halfSize, halfSize, -halfSize,
+            -halfSize, halfSize,  halfSize,
+             halfSize, halfSize,  halfSize,
+             halfSize, halfSize, -halfSize
+        };
+
+        // Floor vertices
+        float floor[] = {
+            -halfSize, 0.0f, -halfSize,
+             halfSize, 0.0f, -halfSize,
+             halfSize, 0.0f,  halfSize,
+            -halfSize, 0.0f,  halfSize
+        };
+
+        // Clear and update all vertex arrays
+        updateVertexArray(frontWallVertices, frontWall, sizeof(frontWall));
+        updateVertexArray(backWallVertices, backWall, sizeof(backWall));
+        updateVertexArray(leftWallVertices, leftWall, sizeof(leftWall));
+        updateVertexArray(rightWallVertices, rightWall, sizeof(rightWall));
+        updateVertexArray(roofVertices, roof, sizeof(roof));
+        updateVertexArray(floorVertices, floor, sizeof(floor));
+    }
+
+private:
+    static void updateVertexArray(vector<float>& target, float* source, size_t size) {
+        target.clear();
+        for (size_t i = 0; i < size / sizeof(float); i++) {
+            target.push_back(source[i]);
+        }
+    }
+};
+
+// Define the static member
+vector<float> Skybox::frontWallVertices;
+vector<float> Skybox::backWallVertices;
+vector<float> Skybox::leftWallVertices;
+vector<float> Skybox::rightWallVertices;
+vector<float> Skybox::roofVertices;
+vector<float> Skybox::floorVertices;
 
 
 // Main display function
@@ -369,15 +560,12 @@ void sunVBO() { // Helper function to render sphere core
             ++index;
         }
     }
-
     // Upload vertex data
     glBindBuffer(GL_ARRAY_BUFFER, sunVBOs[0]);
     glBufferData(GL_ARRAY_BUFFER, sizeof(sphereVertices), sphereVertices, GL_STATIC_DRAW);
-
     // Upload color data
     glBindBuffer(GL_ARRAY_BUFFER, sunVBOs[1]);
     glBufferData(GL_ARRAY_BUFFER, sizeof(sphereColors), sphereColors, GL_STATIC_DRAW);
-
     // Upload normal data
     glBindBuffer(GL_ARRAY_BUFFER, sunVBOs[2]);
     glBufferData(GL_ARRAY_BUFFER, sizeof(sphereNormals), sphereNormals, GL_STATIC_DRAW);
@@ -567,8 +755,22 @@ void skyBoxMap() {
     int gridDivisions = 36;
     float halfSize = size / 2.0f;
 
+    // Enable lighting and set up a directional light
     glEnable(GL_LIGHTING);
     glEnable(GL_LIGHT0);
+
+    // Set up ambient light that affects the entire scene
+    GLfloat ambientLight[] = { 0.2f, 0.2f, 0.2f, 1.0f };
+    GLfloat diffuseLight[] = { 0.7f, 0.7f, 0.7f, 1.0f };
+    GLfloat lightPosition[] = { 0.0f, 1.0f, 0.0f, 0.0f }; // Directional light
+
+    glLightfv(GL_LIGHT0, GL_AMBIENT, ambientLight);
+    glLightfv(GL_LIGHT0, GL_DIFFUSE, diffuseLight);
+    glLightfv(GL_LIGHT0, GL_POSITION, lightPosition);
+
+    // Set global ambient light
+    GLfloat globalAmbient[] = { 0.1f, 0.1f, 0.1f, 1.0f };
+    glLightModelfv(GL_LIGHT_MODEL_AMBIENT, globalAmbient);
 
     skyBox(size, gridDivisions);
 
@@ -585,6 +787,7 @@ void skyBoxMap() {
     glDisable(GL_LIGHTING);
     glDisable(GL_LIGHT0);
 }
+
 
 
 
@@ -618,8 +821,8 @@ void cleanupVBO() {
             else {
                 logMessage("Pyramid texture was not initialized or already deleted.\n");
             }
-            if (sunVBOs[0] || sunVBOs[1]) {  // Cleanup sun VBOs
-                glDeleteBuffers(2, sunVBOs);
+            if (sunVBOs[0] || sunVBOs[1] || sunVBOs[2]) {  // Cleanup sun VBOs
+                glDeleteBuffers(3, sunVBOs);
                 logMessage("Sun VBO resources successfully deleted.\n");
             }
             else {
@@ -690,7 +893,7 @@ void mouseMovement(int x, int y) {
         glutWarpPointer(centerX, centerY);
         lastX = centerX;
         lastY = centerY;
-        return; // Skip processing this frame to prevent jitter
+        return; //skip processing this frame to prevent jitter
     }
 
     lastX = x;
@@ -839,7 +1042,6 @@ void renderPauseMenu() {
     glMatrixMode(GL_MODELVIEW);
     glPopMatrix();
 }
-//we can change this into float or int avlues
 void reshape(GLsizei width, GLsizei height) { //perspective projection
     // Prevent division by zero
     if (height == 0) height = 1;
@@ -854,7 +1056,7 @@ void reshape(GLsizei width, GLsizei height) { //perspective projection
     // Adjusted perspective parameters for better cube visualization
     // Increased FOV to 65 for better cube viewing
     // Far plane increased to 10000 units (it renders this nth units)(frustrum culling) to see cubes from greater distances 
-    gluPerspective(45.0f, aspect, 0.5f, 10000.0f);
+    gluPerspective(45.0f, aspect, 0.5f, 100000.0f);
 
     // Enable necessary rendering features
     glEnable(GL_DEPTH_TEST);
@@ -878,8 +1080,8 @@ void reshape(GLsizei width, GLsizei height) { //perspective projection
     glEnable(GL_FOG);
     glFogi(GL_FOG_MODE, GL_LINEAR);
     glFogfv(GL_FOG_COLOR, fogColor);
-    glFogf(GL_FOG_START, 10000.0f);     // Start fog after 2000 units 35 best nearest
-    glFogf(GL_FOG_END, 50000.0f);       // Full fog by 4500 units 50 or100 for farthest
+    glFogf(GL_FOG_START, 100.0f);     // Start fog after 2000 units 35 best nearest
+    glFogf(GL_FOG_END, 500.0f);       // Full fog by 4500 units 50 or100 for farthest
     glHint(GL_FOG_HINT, GL_NICEST);
 
     glMatrixMode(GL_MODELVIEW);
@@ -1010,7 +1212,7 @@ void display() {
 
     // Render shapes
     renderPyramid();   //render pyramid
-    renderSun(15.0f, segments, angleCircle, -2.0f, 307.5f, 5.0f);
+    renderSun(100.0f, segments, angleCircle, -2.0f, 3007.5f, 5.0f);
     renderPauseMenu(); // Render pause menu overlay if game is paused
     renderFPS(); //fps
     displayCoordinates(cameraX, cameraY, cameraZ); // Display the coordinates of the camera
