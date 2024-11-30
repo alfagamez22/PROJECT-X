@@ -19,10 +19,6 @@
 #include <direct.h> //for _getcwd
 #include <iostream>
 
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
-
 #include "textureloader.cpp" //texture method
 #include "interaction.h" //movement globals
 #include "particlesys.h" //particle system global var
@@ -73,15 +69,18 @@ struct Textures { // Textures for different surfaces
     GLuint pyramid;
 } textures;
 
-struct PyramidInstance { // Add structure for pyramid instances
-    glm::vec3 position;
+struct PyramidInstance {
+    struct Vec3 {
+        float x, y, z;
+    };
+    Vec3 position;
     float rotation;
-    glm::vec3 scale;
+    Vec3 scale;
 };
 
 //Sun Variables
 float glowIntensity = 1.0f;
-float glowSpeed = 0.05f;
+float glowSpeed = 0.01f;
 float glowMin = 0.1f;
 float glowMax = 1.0f;
 bool glowIncreasing = true;
@@ -193,17 +192,21 @@ void initGL() {
     atexit(cleanup);
 }
 
-// Initialize pyramid instances in initGL() or separate init function
 void initPyramidInstances() {
-    // Create 1000 pyramids with random positions across the skybox
-    for (int i = 0; i < 100; i++) {
+    for (int i = 0; i < 1000; i++) {
         PyramidInstance instance;
-        instance.position = glm::vec3(
-            randomFloat(-500.0f, 500.0f),     // x range within skybox
-            randomFloat(10.0f, 37.5f),       // y range for varied heights
-            randomFloat(-500.0f, 500.0f)      // z range within skybox
-        );
-        instance.scale = glm::vec3(randomFloat(1.0f, 10.0f)); // Random sizes
+
+        // Set position
+        instance.position.x = randomFloat(-5000.0f, 5000.0f);
+        instance.position.y = randomFloat(10.0f, 37.5f);
+        instance.position.z = randomFloat(-5000.0f, 5000.0f);
+
+        // Set scale uniformly
+        float randomScale = randomFloat(1.0f, 10.0f);
+        instance.scale.x = randomScale;
+        instance.scale.y = randomScale;
+        instance.scale.z = randomScale;
+
         pyramidInstances.push_back(instance);
     }
 }
@@ -560,7 +563,7 @@ void skyBox(float size, int gridDivisions = 4) {
 }
 void skyBoxMap() {
     float position[3] = { 0.0f, 16.0f, 0.0f };
-    float size = 1024.0f;
+    float size = 10024.0f;
     int gridDivisions = 36;
     float halfSize = size / 2.0f;
 
@@ -836,139 +839,7 @@ void renderPauseMenu() {
     glMatrixMode(GL_MODELVIEW);
     glPopMatrix();
 }
-
-// //particle system
-// //Set spawn area dimensions original
-// void setSpawnArea(
-//     float centerX,
-//     float centerY,
-//     float centerZ,
-//     float rangeX = 20.0f,
-//     float rangeY = 20.0f,
-//     float rangeZ = 20.0f) {
-
-//     spawnArea.centerX = centerX;
-//     spawnArea.centerY = centerY;
-//     spawnArea.centerZ = centerZ;
-//     spawnArea.rangeX = rangeX;
-//     spawnArea.rangeY = rangeY;
-//     spawnArea.rangeZ = rangeZ;
-// }
-
-// void spawnParticle(float centerX = -1.0f, float centerY = -1.0f, float centerZ = -1.0f) {
-//     if (particles.size() < maxParticles) {
-//         Particle newParticle;
-
-//         // Use provided coordinates or default spawn area
-//         float spawnX = (centerX >= 0) ? centerX : spawnArea.centerX;
-//         float spawnY = (centerY >= 0) ? centerY : spawnArea.centerY;
-//         float spawnZ = (centerZ >= 0) ? centerZ : spawnArea.centerZ;
-
-//         // Generate position within spawn area
-//         newParticle.position[0] = randomFloat(spawnX - spawnArea.rangeX, spawnX + spawnArea.rangeX);
-//         newParticle.position[1] = randomFloat(spawnY - spawnArea.rangeY, spawnY + spawnArea.rangeY);
-//         newParticle.position[2] = randomFloat(spawnZ - spawnArea.rangeZ, spawnZ + spawnArea.rangeZ);
-
-//         // Calculate depth factor based on spawn position
-//         newParticle.depthFactor = (newParticle.position[2] - (spawnZ - spawnArea.rangeZ)) / (2 * spawnArea.rangeZ);
-
-//         // Set velocities (primarily moving left)
-//         float baseSpeed = calculateSpeedForDepth(newParticle.depthFactor);
-//         newParticle.velocity[0] = -baseSpeed + randomFloat(-2.0f, 2.0f);
-//         newParticle.velocity[1] = randomFloat(-2.0f, 2.0f) * newParticle.depthFactor;
-//         newParticle.velocity[2] = randomFloat(-1.0f, 1.0f) * (1.0f - newParticle.depthFactor);
-
-//         // Set visual properties
-//         newParticle.size = calculateSizeForDepth(newParticle.depthFactor);
-//         newParticle.isActive = true;
-
-//         particles.push_back(newParticle);
-//     }
-// }
-// void initializeParticles() {
-//     // Initially populate the system with particles across the entire width
-//     for (int i = 0; i < maxParticles; ++i) {
-//         if (particles.size() < maxParticles) {
-//             Particle newParticle;
-//             newParticle.position[0] = randomFloat(leftBoundary, rightBoundary);
-//             newParticle.position[1] = randomFloat(-verticalRange, verticalRange);
-//             newParticle.position[2] = randomFloat(-depthRange, depthRange);
-
-//             newParticle.velocity[0] = randomFloat(-15.0f, -10.0f);
-//             newParticle.velocity[1] = randomFloat(-25.0f, -20.0f);
-//             newParticle.velocity[2] = randomFloat(-35.0f, -30.0f);
-
-//             newParticle.size = randomFloat(0.5f, 2.0f);
-//             newParticle.isActive = true;
-
-//             particles.push_back(newParticle);
-//         }
-//     }
-// }
-// void updateParticles() {
-//     float respawnX = spawnArea.centerX;
-//     float respawnRange = spawnArea.rangeX;
-
-//     for (int i = 0; i < particles.size(); ++i) {
-//         if (particles[i].isActive) {
-//             // Update position
-//             particles[i].position[0] += particles[i].velocity[0] * deltaT * speedMultiplier;
-//             particles[i].position[1] += particles[i].velocity[1] * deltaT * speedMultiplier;
-//             particles[i].position[2] += particles[i].velocity[2] * deltaT * speedMultiplier;
-
-//             // Check if particle needs respawning
-//             if (particles[i].position[0] < spawnArea.centerX - spawnArea.rangeX * 3) {
-//                 // Respawn at original spawn area
-//                 particles[i].position[0] = randomFloat(respawnX - respawnRange, respawnX + respawnRange);
-//                 particles[i].position[1] = randomFloat(spawnArea.centerY - spawnArea.rangeY,
-//                     spawnArea.centerY + spawnArea.rangeY);
-//                 particles[i].position[2] = randomFloat(spawnArea.centerZ - spawnArea.rangeZ,
-//                     spawnArea.centerZ + spawnArea.rangeZ);
-
-//                 // Recalculate depth factor
-//                 particles[i].depthFactor = (particles[i].position[2] - (spawnArea.centerZ - spawnArea.rangeZ))
-//                     / (2 * spawnArea.rangeZ);
-
-//                 // Reset velocities and properties
-//                 float baseSpeed = calculateSpeedForDepth(particles[i].depthFactor);
-//                 particles[i].velocity[0] = -baseSpeed + randomFloat(-2.0f, 2.0f);
-//                 particles[i].velocity[1] = randomFloat(-2.0f, 2.0f) * particles[i].depthFactor;
-//                 particles[i].velocity[2] = randomFloat(-1.0f, 1.0f) * (1.0f - particles[i].depthFactor);
-
-//                 particles[i].size = calculateSizeForDepth(particles[i].depthFactor);
-//             }
-
-//             // Keep particles within vertical and depth bounds
-//             float verticalBound = spawnArea.rangeY * 2;
-//             float depthBound = spawnArea.rangeZ * 2;
-
-//             if (abs(particles[i].position[1] - spawnArea.centerY) > verticalBound) {
-//                 particles[i].velocity[1] *= -0.5f;
-//             }
-//             if (abs(particles[i].position[2] - spawnArea.centerZ) > depthBound) {
-//                 particles[i].velocity[2] *= -0.5f;
-//             }
-//         }
-//     }
-// }
-// void renderParticles() {
-//     for (int i = 0; i < particles.size(); ++i) {
-//         if (particles[i].isActive) {
-//             // Render each particle as a small sphere (use your existing render function) tis part we render our spheres
-//             (1.0f, segments, 0.0f, particles[i].position[0], particles[i].position[1], particles[i].position[2]);
-//         }
-//     }
-// }
-// void update() {
-//     // Spawn new particles if needed
-//     if (particles.size() < maxParticles) {
-//         spawnParticle();
-//     }
-//     updateParticles();
-//     renderParticles();
-// }
-
-
+//we can change this into float or int avlues
 void reshape(GLsizei width, GLsizei height) { //perspective projection
     // Prevent division by zero
     if (height == 0) height = 1;
@@ -1145,9 +1016,6 @@ void display() {
     displayCoordinates(cameraX, cameraY, cameraZ); // Display the coordinates of the camera
     renderHUD(); //displays the HUD
 
-    // updateParticles();  // display particle system
-    // renderParticles(); // display particle system
-    //update(); //keeps updating to spawn particles
 
     glutSwapBuffers();
 
