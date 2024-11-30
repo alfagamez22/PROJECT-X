@@ -7,6 +7,7 @@
 #include <GL/glut.h>
 #include <GL/freeglut_ext.h>
 #include <math.h>
+#include <cmath>
 #include <string.h>
 #include <chrono>
 #include <sstream>
@@ -18,6 +19,7 @@
 #include <ctime>
 #include <direct.h> //for _getcwd for manipulating file
 #include <iostream>
+
 
 using namespace std;
 
@@ -52,7 +54,7 @@ void cleanup();
 GLuint pyramidVBOs[3], sunVBOs[3], skyBoxVBOs[2];
 
 //Texture Loader
-GLuint loadTexture(const char* filename) {
+GLuint loadTexture(const char* primaryPath, const char* fallbackPath) {
     GLuint textureID;
     glGenTextures(1, &textureID);
     glBindTexture(GL_TEXTURE_2D, textureID);
@@ -63,14 +65,18 @@ GLuint loadTexture(const char* filename) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
     int width, height, nrChannels;
-    unsigned char* data = stbi_load(filename, &width, &height, &nrChannels, 0);
+    unsigned char* data = stbi_load(primaryPath, &width, &height, &nrChannels, 0);
+    
+    if (!data) {
+        data = stbi_load(fallbackPath, &width, &height, &nrChannels, 0);
+    }
 
     if (data) {
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
         glGenerateMipmap(GL_TEXTURE_2D);
     }
     else {
-        printf("Failed to load texture: %s\n", filename);
+        printf("Failed to load texture from both paths: %s and %s\n", primaryPath, fallbackPath);
     }
 
     stbi_image_free(data);
@@ -299,6 +305,7 @@ vector<float> Skybox::leftWallVertices;
 vector<float> Skybox::rightWallVertices;
 vector<float> Skybox::roofVertices;
 vector<float> Skybox::floorVertices;
+float M_PI = 3.14;
 
 
 // Main display function
@@ -377,14 +384,19 @@ void initGL() {
     glEnable(GL_TEXTURE_2D);
 
     // Load all textures
-    skyboxTextures.floor = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/sand.png");
-    skyboxTextures.backWall = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/skyclouds.png");
-    skyboxTextures.frontWall = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/skyclouds.png");
-    skyboxTextures.leftWall = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/skyclouds.png");
-    skyboxTextures.rightWall = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/skyclouds.png");
-    skyboxTextures.roof = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/sky.png");
+    skyboxTextures.floor = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/textures/sand.png", "textures/sand.png");
 
-    textures.pyramid = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/sandstone.jpg");
+	skyboxTextures.backWall = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/textures/skyclouds.png", "textures/skyclouds.png");
+
+	skyboxTextures.frontWall = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/textures/skyclouds.png", "textures/skyclouds.png");
+
+	skyboxTextures.leftWall = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/textures/skyclouds.png", "textures/skyclouds.png");
+
+	skyboxTextures.rightWall = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/textures/skyclouds.png", "textures/skyclouds.png");
+
+	skyboxTextures.roof = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/textures/sky.png", "textures/sky.png");
+
+	textures.pyramid = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/textures/sandstone.jpg", "textures/sandstone.jpg");
     atexit(cleanup);
 }
 
@@ -427,17 +439,6 @@ void renderPyramid() {
     glBindBuffer(GL_ARRAY_BUFFER, pyramidVBOs[2]);
     glNormalPointer(GL_FLOAT, 0, 0);
 
-    // Render each instance
-    // for (const auto& instance : pyramidInstances) {
-    //     glPushMatrix();
-    //     glTranslatef(instance.position.x, instance.position.y, instance.position.z);
-    //     glScalef(instance.scale.x, instance.scale.y, instance.scale.z);
-
-    //     glDrawArrays(GL_TRIANGLES, 0, 12);
-    //     glDrawArrays(GL_QUADS, 12, 4);
-
-    //     glPopMatrix();
-    // }
     for (const auto& instance : pyramidInstances) {
         glPushMatrix();
         glTranslatef(instance.position.x, instance.position.y, instance.position.z);
@@ -458,9 +459,7 @@ void renderPyramid() {
     glDisable(GL_LIGHT2);
 }
 void pyramidVBO() {
-    // Generate 3 VBOs for vertices, textures, and normals
     glGenBuffers(3, pyramidVBOs);
-
     // Pyramid vertex VBO
     glBindBuffer(GL_ARRAY_BUFFER, pyramidVBOs[0]);
     glBufferData(GL_ARRAY_BUFFER, sizeof(pyramidVertices), nullptr, GL_STATIC_DRAW);
@@ -488,7 +487,6 @@ void pyramidVBO() {
         glUnmapBuffer(GL_ARRAY_BUFFER);
     }
 }
-
 
 /**
  * Renders a sun object with a pulsating glow effect.
@@ -858,7 +856,6 @@ void renderSkyBox() {
     glDisable(GL_LIGHTING);
     glDisable(GL_LIGHT0);
 }
-
 
 /**
  * Initializes the Vertex Buffer Objects (VBOs) used in the application.
