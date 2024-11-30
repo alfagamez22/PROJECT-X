@@ -29,13 +29,14 @@ void reshape(GLsizei width, GLsizei height);
 void keyboardDown(unsigned char key, int x, int y);
 void keyboardUp(unsigned char key, int x, int y);
 void mouseMovement(int x, int y);
+void mouseWheel(int button, int dir, int x, int y);
 void updateCameraDirection();
 void updateMovement();
 void renderPauseMenu();
 void renderPyramid(); //function for pyramid instances
 void initPyramidInstances();
 void renderSun(float radius, int segments, float angle, float xPos, float yPos, float zPos);
-void skyBoxMap();
+void renderSkyBox();
 void displayCoordinates(float coordX, float coordY, float coordZ);
 void renderHUD();
 void renderSunCore(int segments);
@@ -48,7 +49,7 @@ void cleanup();
 
 /* Global variables */
 //Initialize VBOs
-GLuint pyramidVBOs[3], sunVBOs[3], skyBoxVBOs[4];
+GLuint pyramidVBOs[3], sunVBOs[3], skyBoxVBOs[2];
 
 //Texture Loader
 GLuint loadTexture(const char* filename) {
@@ -120,7 +121,7 @@ float lookZ = -1.0f;
 bool keyStates[256] = { false };
 float velocityX = 0.0f;
 float velocityZ = 0.0f;
-float maxVelocity = 4.15f;
+float maxVelocity = 1.15f;
 float acceleration = 0.05f; //inertia //0.05 is the best
 float deceleration = 0.1f; //inertia //0.01 is the best
 
@@ -135,6 +136,9 @@ float glowMin = 0.1f;
 float glowMax = 1.0f;
 bool glowIncreasing = true;
 
+//fog
+bool fogEnabled = true;
+
 //Draw fps
 chrono::time_point<chrono::high_resolution_clock> startTime;
 int frameCount = 0;
@@ -143,7 +147,7 @@ float fps = 0.0f;
 bool hudEnabled = true;
 
 //number of segments for the sphere (higher is laggier) but may bug out 20 is best and smooth circle
-const int segments = 20;
+const int segments = 100;
 
 //for logging purposes
 bool resourcesInitialized = false;
@@ -152,7 +156,7 @@ string logPath;
 
 //PYRAMID COORDINATES
 // Pyramid vertices and colors
-float scaling = 5.0f;
+float scaling = 3.0f;
 // Vertex and color arrays for the pyramid
 float pyramidVertices[] = {
     // Front face triangle
@@ -307,6 +311,7 @@ int main(int argc, char** argv) {
     glutReshapeFunc(reshape);
     glutKeyboardFunc(keyboardDown);
     glutKeyboardUpFunc(keyboardUp);
+    glutMouseWheelFunc(mouseWheel);
     glutPassiveMotionFunc(mouseMovement);
 
     // Initialize GLEW for OpenGL extension support
@@ -423,14 +428,25 @@ void renderPyramid() {
     glNormalPointer(GL_FLOAT, 0, 0);
 
     // Render each instance
+    // for (const auto& instance : pyramidInstances) {
+    //     glPushMatrix();
+    //     glTranslatef(instance.position.x, instance.position.y, instance.position.z);
+    //     glScalef(instance.scale.x, instance.scale.y, instance.scale.z);
+
+    //     glDrawArrays(GL_TRIANGLES, 0, 12);
+    //     glDrawArrays(GL_QUADS, 12, 4);
+
+    //     glPopMatrix();
+    // }
     for (const auto& instance : pyramidInstances) {
         glPushMatrix();
         glTranslatef(instance.position.x, instance.position.y, instance.position.z);
-        glScalef(instance.scale.x, instance.scale.y, instance.scale.z);
+        glScalef(instance.scale.x * scaling,
+            instance.scale.y * scaling,
+            instance.scale.z * scaling);
 
         glDrawArrays(GL_TRIANGLES, 0, 12);
         glDrawArrays(GL_QUADS, 12, 4);
-
         glPopMatrix();
     }
 
@@ -447,20 +463,50 @@ void pyramidVBO() {
 
     // Pyramid vertex VBO
     glBindBuffer(GL_ARRAY_BUFFER, pyramidVBOs[0]);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(pyramidVertices), pyramidVertices, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(pyramidVertices), nullptr, GL_STATIC_DRAW);
+    GLfloat* vertexPtr = (GLfloat*)glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
+    if (vertexPtr) {
+        memcpy(vertexPtr, pyramidVertices, sizeof(pyramidVertices));
+        glUnmapBuffer(GL_ARRAY_BUFFER);
+    }
 
     // Pyramid texture VBO
     glBindBuffer(GL_ARRAY_BUFFER, pyramidVBOs[1]);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(pyramidTextureCoords), pyramidTextureCoords, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(pyramidTextureCoords), nullptr, GL_STATIC_DRAW);
+    GLfloat* texPtr = (GLfloat*)glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
+    if (texPtr) {
+        memcpy(texPtr, pyramidTextureCoords, sizeof(pyramidTextureCoords));
+        glUnmapBuffer(GL_ARRAY_BUFFER);
+    }
 
     // Pyramid normals VBO
     glBindBuffer(GL_ARRAY_BUFFER, pyramidVBOs[2]);
-    glNormalPointer(GL_FLOAT, 0, pyramidNormals);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(pyramidNormals), pyramidNormals, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(pyramidNormals), nullptr, GL_STATIC_DRAW);
+    GLfloat* normalPtr = (GLfloat*)glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
+    if (normalPtr) {
+        memcpy(normalPtr, pyramidNormals, sizeof(pyramidNormals));
+        glUnmapBuffer(GL_ARRAY_BUFFER);
+    }
 }
 
+
+/**
+ * Renders a sun object with a pulsating glow effect.
+ *
+ * This function sets up the lighting and material properties for the sun, and then renders the sun geometry using the pre-generated vertex, color, and normal data stored in vertex buffer objects (VBOs).
+ * The sun's glow intensity is updated to create a pulsating effect, and the sun's position, scale, and orientation can be controlled through the function parameters.
+ *
+ * The radius of the sun.
+ * The number of segments used to approximate the spherical sun geometry.
+ * The angle of rotation for the sun.
+ * The x-coordinate of the sun's position.
+ * The y-coordinate of the sun's position.
+ * The z-coordinate of the sun's position.
+ */
 void renderSun(float radius, int segments, float angle, float xPos, float yPos, float zPos) {
     // Update glow intensity
+    glShadeModel(GL_SMOOTH);  // Enable smooth shading
+    glEnable(GL_NORMALIZE);   // Ensure normals are normalized
     if (glowIncreasing) {
         glowIntensity += glowSpeed * 0.016f;
         if (glowIntensity >= glowMax) {
@@ -524,34 +570,37 @@ void renderSun(float radius, int segments, float angle, float xPos, float yPos, 
     glPopMatrix();
 
     simulateEnvironmentalLightEffects(xPos, yPos, zPos, radius);
-
+    glShadeModel(GL_FLAT);
     glDisable(GL_BLEND);
     glDisable(GL_LIGHT1);
 }
-void sunVBO() { // Helper function to render sphere core
-    glGenBuffers(3, sunVBOs);  // Changed to 3 for normals
+/**
+ * Generates vertex, color, and normal data for a spherical sun object and uploads it to OpenGL vertex buffer objects (VBOs).
+ * The sun is represented by a sphere with a specified number of segments.
+ * The vertex positions, colors, and normals are calculated and stored in separate VBOs for efficient rendering.
+ */
+void sunVBO() {
+    glGenBuffers(3, sunVBOs);
     const int numVertices = (segments + 1) * (segments + 1);
     float sphereVertices[numVertices * 3];
     float sphereColors[numVertices * 3];
     float sphereNormals[numVertices * 3];
     int index = 0;
-
+    // Generate sphere data
     for (int lat = 0; lat <= segments; ++lat) {
         float theta = lat * M_PI / segments;
         for (int lon = 0; lon <= segments; ++lon) {
             float phi = lon * 2.0f * M_PI / segments;
 
-            // Vertex positions
+            // Calculate vertex positions, normals, and colors
             sphereVertices[index * 3] = sin(theta) * cos(phi);
             sphereVertices[index * 3 + 1] = sin(theta) * sin(phi);
             sphereVertices[index * 3 + 2] = cos(theta);
 
-            // Normals (same as vertices for a sphere)
             sphereNormals[index * 3] = sphereVertices[index * 3];
             sphereNormals[index * 3 + 1] = sphereVertices[index * 3 + 1];
             sphereNormals[index * 3 + 2] = sphereVertices[index * 3 + 2];
 
-            // Sun colors
             float intensity = 0.5f + 0.5f * sin(index * 0.2f);
             sphereColors[index * 3] = 1.0f * intensity;
             sphereColors[index * 3 + 1] = 0.8f * intensity;
@@ -560,17 +609,40 @@ void sunVBO() { // Helper function to render sphere core
             ++index;
         }
     }
-    // Upload vertex data
+    //upload vertex data
     glBindBuffer(GL_ARRAY_BUFFER, sunVBOs[0]);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(sphereVertices), sphereVertices, GL_STATIC_DRAW);
-    // Upload color data
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * numVertices * 3, nullptr, GL_STATIC_DRAW);
+    GLfloat* vertexPtr = (GLfloat*)glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
+    if (vertexPtr) {
+        memcpy(vertexPtr, sphereVertices, sizeof(float) * numVertices * 3);
+        glUnmapBuffer(GL_ARRAY_BUFFER);
+    }
+    //upload color data
     glBindBuffer(GL_ARRAY_BUFFER, sunVBOs[1]);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(sphereColors), sphereColors, GL_STATIC_DRAW);
-    // Upload normal data
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * numVertices * 3, nullptr, GL_STATIC_DRAW);
+    GLfloat* colorPtr = (GLfloat*)glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
+    if (colorPtr) {
+        memcpy(colorPtr, sphereColors, sizeof(float) * numVertices * 3);
+        glUnmapBuffer(GL_ARRAY_BUFFER);
+    }
+    //upload normal data
     glBindBuffer(GL_ARRAY_BUFFER, sunVBOs[2]);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(sphereNormals), sphereNormals, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * numVertices * 3, nullptr, GL_STATIC_DRAW);
+    GLfloat* normalPtr = (GLfloat*)glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
+    if (normalPtr) {
+        memcpy(normalPtr, sphereNormals, sizeof(float) * numVertices * 3);
+        glUnmapBuffer(GL_ARRAY_BUFFER);
+    }
 }
+/**
+ * Renders the core of the sun using a sphere with a smooth shading model.
+ * The sphere is rendered using a series of triangle strips, with each strip
+ * consisting of vertices from adjacent latitude lines.
+ *
+ * segments The number of segments to use when rendering the sphere.
+ */
 void renderSunCore(int segments) {
+    glShadeModel(GL_SMOOTH);
     for (int lat = 0; lat < segments; ++lat) {
         glBegin(GL_TRIANGLE_STRIP);
         for (int lon = 0; lon <= segments; ++lon) {
@@ -582,9 +654,19 @@ void renderSunCore(int segments) {
         glEnd();
     }
 }
+/**
+ * Simulates the effects of environmental lighting on the scene.
+ * Adjusts the global ambient light based on the height of the light source.
+ * Iterates through the pyramid instances and modifies their ambient and diffuse materials
+ * based on the distance from the light source and the light's influence radius.
+ *
+ * The x-coordinate of the light source.
+ * The y-coordinate of the light source.
+ * The z-coordinate of the light source.
+ * The radius of the light source's influence.
+ */
 void simulateEnvironmentalLightEffects(float lightX, float lightY, float lightZ, float lightRadius) {
     float influenceRadius = lightRadius * 5.0f;
-
     GLfloat globalAmbient[] = {
         0.2f + (lightY / 500.0f),
         0.2f + (lightY / 500.0f),
@@ -592,17 +674,14 @@ void simulateEnvironmentalLightEffects(float lightX, float lightY, float lightZ,
         1.0f
     };
     glLightModelfv(GL_LIGHT_MODEL_AMBIENT, globalAmbient);
-
     float colorTemperature = (lightY > 250.0f) ? 6500.0f :
         (lightY > 100.0f) ? 3000.0f : 2000.0f;
-
     for (auto& pyramid : pyramidInstances) {
         float distance = sqrt(
             pow(pyramid.position.x - lightX, 2) +
             pow(pyramid.position.y - lightY, 2) +
             pow(pyramid.position.z - lightZ, 2)
         );
-
         if (distance < influenceRadius) {
             float intensity = 1.0f - (distance / influenceRadius);
             GLfloat dynamicAmbient[] = { 0.2f * intensity, 0.2f * intensity, 0.2f * intensity, 1.0f };
@@ -614,50 +693,54 @@ void simulateEnvironmentalLightEffects(float lightX, float lightY, float lightZ,
     }
 }
 
+/**
+ * Initializes and manages the skybox's Vertex Buffer Objects.
+ * Generates VBOs for vertex data and texture coordinates, then uploads the data to GPU memory.
+ * Sets up texture bindings and vertex arrays for efficient rendering of all six skybox faces.
+ */
 void skyBoxVBO() {
-    // Generate VBO IDs
-    glGenBuffers(3, skyBoxVBOs);
-
-    // Upload vertex data
+    glGenBuffers(2, skyBoxVBOs);
+    //upload vertex data using mapped buffer
     glBindBuffer(GL_ARRAY_BUFFER, skyBoxVBOs[0]);
-    glBufferData(GL_ARRAY_BUFFER, vertexData.size() * sizeof(float), vertexData.data(), GL_STATIC_DRAW);
-
-    // Upload texture coordinate data
+    glBufferData(GL_ARRAY_BUFFER, vertexData.size() * sizeof(float), nullptr, GL_STATIC_DRAW);
+    GLfloat* vertexPtr = (GLfloat*)glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
+    if (vertexPtr) {
+        memcpy(vertexPtr, vertexData.data(), vertexData.size() * sizeof(float));
+        glUnmapBuffer(GL_ARRAY_BUFFER);
+    }
+    //upload texture coordinate data using mapped buffer
     glBindBuffer(GL_ARRAY_BUFFER, skyBoxVBOs[1]);
-    glBufferData(GL_ARRAY_BUFFER, textureCoordData.size() * sizeof(float), textureCoordData.data(), GL_STATIC_DRAW);
-
-    // Enable texture and vertex arrays
+    glBufferData(GL_ARRAY_BUFFER, textureCoordData.size() * sizeof(float), nullptr, GL_STATIC_DRAW);
+    GLfloat* texCoordPtr = (GLfloat*)glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
+    if (texCoordPtr) {
+        memcpy(texCoordPtr, textureCoordData.data(), textureCoordData.size() * sizeof(float));
+        glUnmapBuffer(GL_ARRAY_BUFFER);
+    }
+    //enable texture and vertex arrays
     glEnable(GL_TEXTURE_2D);
     glEnableClientState(GL_VERTEX_ARRAY);
     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-
-    // Set up vertex and texture coordinate pointers
+    //set up vertex and texture coordinate pointers
     glBindBuffer(GL_ARRAY_BUFFER, skyBoxVBOs[0]);
     glVertexPointer(3, GL_FLOAT, 0, 0);
     glBindBuffer(GL_ARRAY_BUFFER, skyBoxVBOs[1]);
     glTexCoordPointer(2, GL_FLOAT, 0, 0);
-
-    // Draw front wall
+    //draw front wall
     glBindTexture(GL_TEXTURE_2D, skyboxTextures.frontWall);
     glDrawArrays(GL_QUADS, 0, 4);
-
-    // Draw back wall
+    //draw back wall
     glBindTexture(GL_TEXTURE_2D, skyboxTextures.backWall);
     glDrawArrays(GL_QUADS, 4, 4);
-
-    // Draw left wall
+    //draw left wall
     glBindTexture(GL_TEXTURE_2D, skyboxTextures.leftWall);
     glDrawArrays(GL_QUADS, 8, 4);
-
-    // Draw right wall
+    //draw right wall
     glBindTexture(GL_TEXTURE_2D, skyboxTextures.rightWall);
     glDrawArrays(GL_QUADS, 12, 4);
-
-    // Draw roof
+    //draw roof
     glBindTexture(GL_TEXTURE_2D, skyboxTextures.roof);
     glDrawArrays(GL_QUADS, 16, 4);
-
-    // Draw floor
+    //draw floor
     glBindTexture(GL_TEXTURE_2D, skyboxTextures.floor);
     glDrawArrays(GL_QUADS, 20, 4);
     // Cleanup
@@ -665,115 +748,104 @@ void skyBoxVBO() {
     glDisableClientState(GL_TEXTURE_COORD_ARRAY);
     glDisable(GL_TEXTURE_2D);
 }
+/**
+ * Generates vertex and texture coordinate data for the skybox.
+ * Takes parameters for overall size and grid detail. Updates vertex arrays for all six faces (front, back, left, right, roof, floor) with proper texture mapping coordinates.
+ * The data is stored in vertexData and textureCoordData vectors.
+ */
 void skyBox(float size, int gridDivisions = 4) {
     float step = size / gridDivisions;
     vertexData.clear();
     textureCoordData.clear();
-
     Skybox::updateCubeVertices(size);
-
-    // Front Wall
+    //front wall
     for (size_t i = 0; i < 12; i += 3) {
         vertexData.push_back(Skybox::frontWallVertices[i]);
         vertexData.push_back(Skybox::frontWallVertices[i + 1]);
         vertexData.push_back(Skybox::frontWallVertices[i + 2]);
-
         float texU = (Skybox::frontWallVertices[i] + size / 2) / size;
         float texV = Skybox::frontWallVertices[i + 1] / size;
         textureCoordData.push_back(texU);
         textureCoordData.push_back(texV);
     }
-
-    // Back Wall
+    //back wall
     for (size_t i = 0; i < 12; i += 3) {
         vertexData.push_back(Skybox::backWallVertices[i]);
         vertexData.push_back(Skybox::backWallVertices[i + 1]);
         vertexData.push_back(Skybox::backWallVertices[i + 2]);
-
         float texU = (Skybox::backWallVertices[i] + size / 2) / size;
         float texV = Skybox::backWallVertices[i + 1] / size;
         textureCoordData.push_back(texU);
         textureCoordData.push_back(texV);
     }
-
-    // Left Wall
+    //left wall
     for (size_t i = 0; i < 12; i += 3) {
         vertexData.push_back(Skybox::leftWallVertices[i]);
         vertexData.push_back(Skybox::leftWallVertices[i + 1]);
         vertexData.push_back(Skybox::leftWallVertices[i + 2]);
-
         float texU = (Skybox::leftWallVertices[i + 2] + size / 2) / size;
         float texV = Skybox::leftWallVertices[i + 1] / size;
         textureCoordData.push_back(texU);
         textureCoordData.push_back(texV);
     }
-
-    // Right Wall
+    //right wall
     for (size_t i = 0; i < 12; i += 3) {
         vertexData.push_back(Skybox::rightWallVertices[i]);
         vertexData.push_back(Skybox::rightWallVertices[i + 1]);
         vertexData.push_back(Skybox::rightWallVertices[i + 2]);
-
         float texU = (Skybox::rightWallVertices[i + 2] + size / 2) / size;
         float texV = Skybox::rightWallVertices[i + 1] / size;
         textureCoordData.push_back(texU);
         textureCoordData.push_back(texV);
     }
-
-    // Roof
+    //roof
     for (size_t i = 0; i < 12; i += 3) {
         vertexData.push_back(Skybox::roofVertices[i]);
         vertexData.push_back(Skybox::roofVertices[i + 1]);
         vertexData.push_back(Skybox::roofVertices[i + 2]);
-
         float texU = (Skybox::roofVertices[i] + size / 2) / size;
         float texV = (Skybox::roofVertices[i + 2] + size / 2) / size;
         textureCoordData.push_back(texU);
         textureCoordData.push_back(texV);
     }
-
-    // Floor with texture coordinates and grid lines
-    // First add the main floor vertices
+    //floor
     for (size_t i = 0; i < 12; i += 3) {
         float x = Skybox::floorVertices[i];
         float y = Skybox::floorVertices[i + 1];
         float z = Skybox::floorVertices[i + 2];
-
         vertexData.push_back(x);
         vertexData.push_back(y);
         vertexData.push_back(z);
-
         float texU = (x + size / 2) / size;
         float texV = (z + size / 2) / size;
         textureCoordData.push_back(texU);
         textureCoordData.push_back(texV);
     }
 }
-void skyBoxMap() {
+/**
+ * Handles the actual rendering of the skybox using the initialized VBOs.
+ * Sets up lighting and materials, applies transformations, and renders each face with its corresponding texture.
+ * Manages proper depth testing and polygon offset to avoid z-fighting issues.
+ */
+void renderSkyBox() {
     float position[3] = { 0.0f, 16.0f, 0.0f };
     float size = 10024.0f;
     int gridDivisions = 36;
     float halfSize = size / 2.0f;
-
-    // Enable lighting and set up a directional light
+    //enable lighting
     glEnable(GL_LIGHTING);
     glEnable(GL_LIGHT0);
-
-    // Set up ambient light that affects the entire scene
+    //setting up ambient light that affects the entire skybox
     GLfloat ambientLight[] = { 0.2f, 0.2f, 0.2f, 1.0f };
     GLfloat diffuseLight[] = { 0.7f, 0.7f, 0.7f, 1.0f };
-    GLfloat lightPosition[] = { 0.0f, 1.0f, 0.0f, 0.0f }; // Directional light
-
+    GLfloat lightPosition[] = { 0.0f, 1.0f, 0.0f, 0.0f }; //directional lighting x y z w
     glLightfv(GL_LIGHT0, GL_AMBIENT, ambientLight);
     glLightfv(GL_LIGHT0, GL_DIFFUSE, diffuseLight);
     glLightfv(GL_LIGHT0, GL_POSITION, lightPosition);
-
     // Set global ambient light
     GLfloat globalAmbient[] = { 0.1f, 0.1f, 0.1f, 1.0f };
     glLightModelfv(GL_LIGHT_MODEL_AMBIENT, globalAmbient);
-
     skyBox(size, gridDivisions);
-
     glPushMatrix();
     {
         glTranslatef(position[0], position[1], position[2]);
@@ -783,17 +855,21 @@ void skyBoxMap() {
         glDisable(GL_POLYGON_OFFSET_FILL);
     }
     glPopMatrix();
-
     glDisable(GL_LIGHTING);
     glDisable(GL_LIGHT0);
 }
 
 
-
-
+/**
+ * Initializes the Vertex Buffer Objects (VBOs) used in the application.
+ * This function sets up the VBOs for the pyramid, sun, and skybox geometry.
+ * It also unbinds the buffer and texture objects, and marks the resources as initialized.
+ * Finally, it logs a message indicating that the OpenGL resources have been initialized successfully.
+ */
 void initVBOs() {
     pyramidVBO();
     sunVBO();
+    //renderSkyBox();
     //skyBoxVBO();
 
     // Unbind buffer
@@ -803,6 +879,13 @@ void initVBOs() {
     logMessage("OpenGL resources initialized successfully");
 }
 
+/**
+ * Performs cleanup tasks for the OpenGL resources used in the application.
+ * This function is responsible for deleting various VBO (Vertex Buffer Object) resources,
+ * textures, and other OpenGL objects that were created during the initialization of the
+ * application. It ensures that all resources are properly cleaned up before the application
+ * exits.
+ */
 void cleanupVBO() {
     if (resourcesInitialized) {
         if (glutGetWindow()) {  // Ensure a valid OpenGL context
@@ -853,6 +936,12 @@ void cleanupVBO() {
         logMessage("Resources are not initialized or have already been cleaned up.\n");
     }
 }
+/**
+ * Performs cleanup tasks for the application, including:
+ * - Cleaning up VBO resources
+ * - Closes the OpenGL window
+ * - Closing the log file
+ */
 void cleanup() {
     cleanupVBO();
     if (glutGetWindow()) {
@@ -865,8 +954,17 @@ void cleanup() {
     }
 }
 
+/**
+ * Handles mouse movement events for the camera.
+ *
+ * This function updates the camera's yaw and pitch angles based on the mouse movement.
+ * It also ensures that the camera's pitch is constrained within a reasonable range to
+ * prevent the camera from flipping.
+ *
+ *  x The current x-coordinate of the mouse cursor.
+ *  y The current y-coordinate of the mouse cursor.
+ */
 void mouseMovement(int x, int y) {
-
     if (isPaused) return;
     if (firstMouse) {
         lastX = x;
@@ -874,71 +972,93 @@ void mouseMovement(int x, int y) {
         firstMouse = false;
         return;
     }
-
-    // Get current window dimensions
+    //this calc the vp dimension
     int windowWidth = glutGet(GLUT_WINDOW_WIDTH);
     int windowHeight = glutGet(GLUT_WINDOW_HEIGHT);
-
-    // Calculate window center
+    //calculates the mouse movement in the x and y direction depending on the vp
     int centerX = windowWidth / 2;
     int centerY = windowHeight / 2;
-
     float xoffset = x - lastX;
     float yoffset = lastY - y;
-
-    // Only warp if we're near the edges (within 20% of window size)
+    //resets mouse position for next frame and prevents mouse jittering when mouse is on the edge of the screen
     int edgeThreshold = windowWidth / 5;
     if (x <= edgeThreshold || x >= (windowWidth - edgeThreshold) ||
         y <= edgeThreshold || y >= (windowHeight - edgeThreshold)) {
         glutWarpPointer(centerX, centerY);
         lastX = centerX;
         lastY = centerY;
-        return; //skip processing this frame to prevent jitter
+        return;
     }
-
     lastX = x;
     lastY = y;
-
+    //calculates the sensitivity of the mouse movement
     xoffset *= sensitivity;
     yoffset *= sensitivity;
-
+    //updates the camera's yaw and pitch angles
     yaw += xoffset;
     pitch += yoffset;
-
-    // Constrain pitch to prevent camera flipping from a full 360 degree rotation
+    //constrains the pitch to prevent camera flipping from a full 360 degree rotation in the y-axis or prevents barrel roll
     if (pitch > 89.0f) pitch = 89.0f;
     if (pitch < -89.0f) pitch = -89.0f;
-
     updateCameraDirection();
 }
 void updateCameraDirection() {
+    //for camera movement
     lookX = cos(yaw * M_PI / 180.0f) * cos(pitch * M_PI / 180.0f);
     lookY = sin(pitch * M_PI / 180.0f);
     lookZ = sin(yaw * M_PI / 180.0f) * cos(pitch * M_PI / 180.0f);
 }
+/**
+ * Handles keyboard input events, including toggling the pause state, enabling/disabling fog, and toggling the HUD.
+ *
+ * When the ESC key is pressed, the application is paused or resumed. When paused, the cursor is set to the default and a message is logged. When resumed, the cursor is set to hidden and a message is logged.
+ *
+ * When the application is paused and the 'q' or 'Q' key is pressed, the application is exited.
+ *
+ * When the 'f' or 'F' key is pressed, fog is enabled or disabled. A message is logged to indicate the fog state.
+ *
+ * When the 'h' or 'H' key is pressed, the HUD is toggled on or off. A message is logged to indicate the HUD state.
+ *
+ * The ASCII character code of the key that was pressed.
+ * The current x-coordinate of the mouse cursor.
+ * The current y-coordinate of the mouse cursor.
+ */
 void keyboardDown(unsigned char key, int x, int y) {
     keyStates[key] = true;
-
-    if (key == 27) { // ESC key
+    //toggle for pause and resume
+    if (key == 27) { //ESC key
         if (!isPaused) {
             isPaused = true;
             glutSetCursor(GLUT_CURSOR_INHERIT);
-            logMessage("Game Paused.");
+            logMessage("Paused.");
         }
         else {
             isPaused = false;
             glutSetCursor(GLUT_CURSOR_NONE);
-            logMessage("Game Resumed.");
+            logMessage("Resumed.");
         }
     }
 
-    // Exit only if 'q' or 'Q' is pressed and the system is paused
+    //exits only if 'q' or 'Q' is pressed and the system is paused
     if (isPaused && (key == 'q' || key == 'Q')) {
         logMessage("Application Exited by user.\n");
         cleanup();
         exit(0);
     }
 
+    //toggle for fog
+    if (key == 'f' || key == 'F') {
+        fogEnabled = !fogEnabled;
+        if (fogEnabled) {
+            glEnable(GL_FOG);
+            logMessage("Fog enabled.");
+        }
+        else {
+            glDisable(GL_FOG);
+            logMessage("Fog disabled.");
+        }
+    }
+    //toggle for HUD
     if (key == 'h' || key == 'H') {
         hudEnabled = !hudEnabled; // Toggles HUD visibility
         if (hudEnabled) {
@@ -952,6 +1072,11 @@ void keyboardDown(unsigned char key, int x, int y) {
 void keyboardUp(unsigned char key, int x, int y) {
     keyStates[key] = false;
 }
+/**
+ * Updates the player's movement based on the current key states.
+ * This function is responsible for calculating the desired velocity and smoothly interpolating the current velocity towards the target velocity.
+ * It also updates the camera position and Y-axis position based on the key states.
+ */
 void updateMovement() {
     if (isPaused) return;
 
@@ -1042,53 +1167,57 @@ void renderPauseMenu() {
     glMatrixMode(GL_MODELVIEW);
     glPopMatrix();
 }
+void mouseWheel(int button, int dir, int x, int y) {
+    if (dir > 0) {
+        // Scroll up - increase scale
+        scaling = min(scaling + 1.0f, 50.0f);
+    }
+    else {
+        // Scroll down - decrease scale
+        scaling = max(scaling - 1.0f, 3.0f);
+    }
+    glutPostRedisplay();
+}
+/**
+ * Reshapes the OpenGL viewport and projection matrix to match the new window size.
+ * This function is called whenever the window is resized.
+ *
+ * The new width of the window.
+ * The new height of the window.
+ */
 void reshape(GLsizei width, GLsizei height) { //perspective projection
-    // Prevent division by zero
     if (height == 0) height = 1;
     float aspect = (float)width / (float)height;
-
-    // Set the viewport to the new window size
+    //viewport to the new window size
     glViewport(0, 0, width, height);
-    // Switch to projection matrix mode
+    //projection matrix mode
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-
-    // Adjusted perspective parameters for better cube visualization
-    // Increased FOV to 65 for better cube viewing
-    // Far plane increased to 10000 units (it renders this nth units)(frustrum culling) to see cubes from greater distances 
-    gluPerspective(45.0f, aspect, 0.5f, 100000.0f);
-
-    // Enable necessary rendering features
+    //far plane increased to 10000 units (it renders this nth units)(frustrum culling) to see objects from greater distance
+    gluPerspective(65.0f, aspect, 0.5f, 100000.0f);
+    //enabled necessary rendering features
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL); // Less than or equal depth comparison for better depth precision
-
-    // //Enable back face culling for better cube rendering (frustrum culling)
-    // glEnable(GL_CULL_FACE);
-    // glCullFace(GL_BACK);
-    // glCullFace(GL_FRONT);
-
-    // Enable line smoothing for better grid lines
+    //enabled line smoothing for better grid lines
     glEnable(GL_LINE_SMOOTH);
     glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
-
-    // Enable blending for smoother lines
+    //enabled blending for smoother lines
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-    // Setup fog for distance fade
-    GLfloat fogColor[4] = { 0.96f, 0.64f, 0.38f, 1.0f }; // Desert sand color fog
-    glEnable(GL_FOG);
-    glFogi(GL_FOG_MODE, GL_LINEAR);
-    glFogfv(GL_FOG_COLOR, fogColor);
-    glFogf(GL_FOG_START, 100.0f);     // Start fog after 2000 units 35 best nearest
-    glFogf(GL_FOG_END, 500.0f);       // Full fog by 4500 units 50 or100 for farthest
-    glHint(GL_FOG_HINT, GL_NICEST);
-
+    //fog with distance fade and density
+    if (fogEnabled) {
+        GLfloat fogColor[4] = { 0.96f, 0.64f, 0.38f, 1.0f };
+        glEnable(GL_FOG);
+        glFogi(GL_FOG_MODE, GL_EXP2);
+        glFogfv(GL_FOG_COLOR, fogColor);
+        glFogf(GL_FOG_DENSITY, 0.00035f);
+        glHint(GL_FOG_HINT, GL_NICEST);
+    }
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
 }
 void renderFPS() {
-    // Calculate FPS
+    //calculate FPS
     frameCount++;
     auto currentTime = chrono::high_resolution_clock::now();
     chrono::duration<float> elapsedTime = currentTime - startTime;
@@ -1097,8 +1226,7 @@ void renderFPS() {
         frameCount = 0;
         startTime = currentTime;
     }
-
-    // Switch to orthographic projection to render FPS
+    //switched to a orthographic projection to render FPS
     glMatrixMode(GL_PROJECTION);
     glPushMatrix();
     glLoadIdentity();
@@ -1106,8 +1234,7 @@ void renderFPS() {
     glMatrixMode(GL_MODELVIEW);
     glPushMatrix();
     glLoadIdentity();
-
-    // Render FPS
+    //streaming frames
     stringstream ss;
     ss << "FPS: " << fps;
     string fpsString = ss.str();
@@ -1116,7 +1243,6 @@ void renderFPS() {
     for (char c : fpsString) {
         glutBitmapCharacter(GLUT_BITMAP_HELVETICA_18, c);
     }
-
     // Restore the previous projection matrix
     glMatrixMode(GL_PROJECTION);
     glPopMatrix();
@@ -1165,36 +1291,42 @@ void displayCoordinates(float coordX, float coordY, float coordZ) {
     glMatrixMode(GL_MODELVIEW);
 }
 void renderHUD() {
-    if (!hudEnabled) return;  // Only render if HUD is enabled
-
+    if (!hudEnabled) return;  //renders if HUD is enabled
     // Set up orthographic projection for 2D overlay
     glMatrixMode(GL_PROJECTION);
     glPushMatrix();
     glLoadIdentity();
     int viewport[4];
     glGetIntegerv(GL_VIEWPORT, viewport);
-    gluOrtho2D(0, viewport[2], 0, viewport[3]);  // Match viewport dimensions
-
+    gluOrtho2D(0, viewport[2], 0, viewport[3]);//this matches the vp
     glMatrixMode(GL_MODELVIEW);
     glPushMatrix();
     glLoadIdentity();
-
-    // Position HUD in bottom-left corner
+    //hud coords
     glColor3f(1.0f, 1.0f, 1.0f);  // Set HUD text color to white
-    int hudX = 10;
-    int hudY = 100;
-
+    int hudX = 10; //bottom left corner coords
+    int hudY = 140;
     renderText(hudX, hudY, "HUD - Controls:");
     renderText(hudX, hudY - 20, "W/A/S/D: Move");
     renderText(hudX, hudY - 40, "Q/E: Move Up/Down");
-    renderText(hudX, hudY - 60, "R: Rotate");
-    renderText(hudX, hudY - 80, "H: Toggle HUD");
+    renderText(hudX, hudY - 60, "F: Toggle Fog");
+    renderText(hudX, hudY - 80, "Scroll Wheel UP & DOWN: Pyramid Size Scaling");
+    renderText(hudX, hudY - 100, "H: Toggle HUD");
 
     glPopMatrix();
     glMatrixMode(GL_PROJECTION);
     glPopMatrix();
     glMatrixMode(GL_MODELVIEW);
 }
+/**
+ * Callback function for the timer event.
+ * This function is called at regular intervals to update the movement of the scene and redraw the display.
+ * It calls the `updateMovement()` function to update the movement of objects in the scene,
+ * then calls `glutPostRedisplay()` to trigger a redraw of the display, and finally schedules the next timer callback
+ * using `glutTimerFunc()`.
+ *
+ * Unused parameter passed to the timer callback function.
+ */
 void timer(int value) {
     updateMovement();
     glutPostRedisplay();
@@ -1205,20 +1337,16 @@ void display() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
-
-
     gluLookAt(cameraX, cameraY, cameraZ, cameraX + lookX, cameraY + lookY, cameraZ + lookZ, 0.0f, 1.0f, 0.0f);  // Set camera position and orientation
-    skyBoxMap(); //skybox  // Render the complete cube map (floor, ceiling, and walls)
-
-    // Render shapes
+    //render shapes
     renderPyramid();   //render pyramid
-    renderSun(100.0f, segments, angleCircle, -2.0f, 3007.5f, 5.0f);
+    renderSun(100.0f, segments, angleCircle, -2.0f, 3007.5f, 5.0f); //size, num of segments, angle of the rotation, and x y z coordinates
+    renderSkyBox(); //skybox  // Render the complete cube map (floor, ceiling, and walls)
+    //rendering hud elements
     renderPauseMenu(); // Render pause menu overlay if game is paused
     renderFPS(); //fps
     displayCoordinates(cameraX, cameraY, cameraZ); // Display the coordinates of the camera
     renderHUD(); //displays the HUD
-
-
     glutSwapBuffers();
 
     if (!isPaused) {
