@@ -1,5 +1,35 @@
+/**
+ * GENERAL INSTRUCTIONS
+ * 1. PUT THE STB FOLDER WHERE YOUR PROJECT LIES
+ * 2. PUT THE TEXTURE FOLDER WHERE YOUR PROJECT LIES
+ * 3. IN THE EVENT M_PI IS UNDERFINED UNCOMMENT float M_PI = 3.14 AT LINE 182;
+ * 4. IF THE TEXTURES ARENT LOADED IT MEANS YOUR DIRECTORY IS WRONG
+ * 5. IN THE EVENT THERES AN ERROR WITH THE STBI THIS MEANS THAT STB FOLDER DIRECTORY IS IN THE WRONG PLACE AS WELL
+ * 6. IN THE EVENT THAT THERE ARE STB ERRORS PLEASE COMMENT THE TEXTURE LOAD FROM LINE 77-104 AS WELL AS FOR THE TEXTURE LOCATION OF LINE 397-403
+ * 7. EACH METHOD HAS ITS OWN SUMMARIZED EXPLANATION ON HOW THIS METHOD WORKS
+ *
+ *
+ * CS0045 Introduction to Computer Graphics and Visual Computing LONG QUIZ#2 & FINAL PROJECT 2024
+ * PROFESSOR REGINALD CHENG
+ *
+ * GROUP_INFO:
+ * DHANNIEL HARVEY BUAN - LEADER
+ * MELVIN SELVES
+ * JULIUS TOMAQUIN
+ * JULIAN CABELIN
+ *
+ * GITHUB_: https://github.com/alfagamez22/PROJECT-X
+ * REFERENCES
+ * 1. https://www3.ntu.edu.sg/home/ehchua/programming/opengl/CG_Examples.html
+ * 2. https://www.khronos.org/opengl/wiki/Main_Page
+ * 3. https://www.youtube.com/watch?v=8sVvxeKI9Pk&ab_channel=VictorGordan
+ * 4. https://www.youtube.com/watch?v=ZbszezwNSZU&t=110s&ab_channel=VictorGordan
+ * 5. https://www.opengl.org/resources/
+ */
+
 #define GLEW_STATIC
 #define STB_IMAGE_IMPLEMENTATION
+#define _USE_MATH_DEFINES //for assurances in case M_PI doesnt work
 
 #include "stb/stb_image.h"
 
@@ -66,7 +96,7 @@ GLuint loadTexture(const char* primaryPath, const char* fallbackPath) {
 
     int width, height, nrChannels;
     unsigned char* data = stbi_load(primaryPath, &width, &height, &nrChannels, 0);
-    
+
     if (!data) {
         data = stbi_load(fallbackPath, &width, &height, &nrChannels, 0);
     }
@@ -83,13 +113,13 @@ GLuint loadTexture(const char* primaryPath, const char* fallbackPath) {
     return textureID;
 }
 
-struct SkyboxTextures { // Texture IDs for different surfaces
+struct SkyboxTextures { //texture IDs for different surfaces
     GLuint floor, roof, frontWall, backWall, leftWall, rightWall;
 } skyboxTextures;
-struct Textures { // Textures for different surfaces
+struct Textures { //texture for pyramid
     GLuint pyramid;
 } textures;
-struct PyramidInstance { //Instantiate the number of pyramids with randomness in x y z coordinates
+struct PyramidInstance { //instantiates the number of pyramids with randomness in x y z coordinates
     struct Vec3 {
         float x, y, z;
     };
@@ -101,29 +131,28 @@ float randomFloat(float min, float max) { //helper function for randomizing pyra
     return min + static_cast<float>(rand()) / (static_cast<float>(RAND_MAX / (max - min)));
 }
 float anglePyramid = 0.0f;
-float angleCube = 0.0f;
-float angleCircle = 0.0f;  // Rotation angle for the circle
+float angleofSun = 0.0f;  //rotation angle for the circle
 
 int refreshMills = 5; // Refresh interval in milliseconds the lower the better maximum 5 minimum 25 (15 best) to avoid visual bugs
 
 //Camera Dimensions
-// Camera position and orientation starting
+//camera position and orientation starting
 float cameraX = 0.0f;
 float cameraY = 17.5f;
 float cameraZ = 10.0f;
 float cameraSpeed = 2.1f; //can be adjusted the higher the faster 0.1 is the best it was 0.3 kinda quick
-// Camera angles
+//camera angles
 float yaw = -90.0f;
 float pitch = 0.0f;
 float lastX = 320.0f;
 float lastY = 240.0f;
 float sensitivity = 0.1f;
-// Camera direction vectors
+//camera direction vectors
 float lookX = 0.0f;
 float lookY = 0.0f;
 float lookZ = -1.0f;
 
-// Movement flags and velocity
+//movement flags and velocity
 bool keyStates[256] = { false };
 float velocityX = 0.0f;
 float velocityZ = 0.0f;
@@ -131,11 +160,11 @@ float maxVelocity = 1.15f;
 float acceleration = 0.05f; //inertia //0.05 is the best
 float deceleration = 0.1f; //inertia //0.01 is the best
 
-// Window state
+//window state
 bool isPaused = false;
 bool firstMouse = true;
 
-//Sun Variables
+//sun Variables
 float glowIntensity = 1.0f;
 float glowSpeed = 0.01f;
 float glowMin = 0.1f;
@@ -159,6 +188,9 @@ const int segments = 100;
 bool resourcesInitialized = false;
 ofstream logFile;
 string logPath;
+
+//M_PI in case M_PI doesnt work uncomment this because M_PI is already predefined on my IDE but some dont
+//float M_PI = 3.14;
 
 //PYRAMID COORDINATES
 // Pyramid vertices and colors
@@ -215,10 +247,6 @@ static const GLfloat pyramidNormals[] = {
     0.0f, -1.0f, 0.0f,
     0.0f, -1.0f, 0.0f
 };
-
-vector<float> vertexData; //vertex data for skybox
-vector<float> textureCoordData; //texture coordinate data
-vector<PyramidInstance> pyramidInstances; //vector to store instances
 
 class Skybox {
 public:
@@ -298,14 +326,17 @@ private:
     }
 };
 
-// Define the static member
+// static vertex members for skybox
 vector<float> Skybox::frontWallVertices;
 vector<float> Skybox::backWallVertices;
 vector<float> Skybox::leftWallVertices;
 vector<float> Skybox::rightWallVertices;
 vector<float> Skybox::roofVertices;
 vector<float> Skybox::floorVertices;
-float M_PI = 3.14;
+
+vector<float> vertexData; //vertex data for skybox
+vector<float> textureCoordData; //texture coordinate data
+vector<PyramidInstance> pyramidInstances; //vector to store instances
 
 
 // Main display function
@@ -313,7 +344,7 @@ int main(int argc, char** argv) {
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE);
     glutInitWindowSize(1280, 720);
-    glutCreateWindow("3D Shapes with First Person Controls");
+    glutCreateWindow("3D Pyramid Scene by Buan, Selves, Tomaquin, Cabelin");
     glutDisplayFunc(display);
     glutReshapeFunc(reshape);
     glutKeyboardFunc(keyboardDown);
@@ -345,22 +376,14 @@ void logMessage(const char* message) {
         _getcwd(cwd, sizeof(cwd));
         logPath = string(cwd) + "\\opengl_cleanup.log";
         logFile.open(logPath, ios::app);
-
-        // Print the log file location when it's first created
         cout << "Log file created at: " << logPath << endl;
     }
-
-    // Get current time
     time_t now = time(0);
     struct tm localTime;
-    localtime_s(&localTime, &now); // Safer version of localtime
-
-    // Format the time as 12-hour format with AM/PM
+    localtime_s(&localTime, &now); //localtime based on pc time
     char formattedTime[50];
-    strftime(formattedTime, sizeof(formattedTime), "%I:%M:%S %p", &localTime);
-
-    // Write to both log file and console
-    cout << formattedTime << ": " << message << endl;
+    strftime(formattedTime, sizeof(formattedTime), "%I:%M:%S %p", &localTime); //12hr format
+    cout << formattedTime << ": " << message << endl; //they write at the console and the logfile at the same time
     logFile << formattedTime << ": " << message << endl;
     logFile.flush();
 }
@@ -371,71 +394,65 @@ void initGL() {
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
     glShadeModel(GL_SMOOTH);
-
     initPyramidInstances();
-
     glHint(GL_PERSPECTIVE_CORRECTION_HINT, GL_NICEST);
     glutSetCursor(GLUT_CURSOR_NONE);
     initVBOs();
-
     startTime = chrono::high_resolution_clock::now();
     logMessage("Application starting Now...");
-
     glEnable(GL_TEXTURE_2D);
 
-    // Load all textures
+    //texture location first case here is my directory second case here is another case directory change the location of the 2nd hence
+    //    skyboxTextures.floor = loadTexture("YOUR TEXTURE FOLDER DIRECTORY", "YOUR TEXTURE FOLDER DIRECTORY"); //this is case to case in which we implemented it when we tried to run it on our own computers
     skyboxTextures.floor = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/textures/sand.png", "textures/sand.png");
-
-	skyboxTextures.backWall = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/textures/skyclouds.png", "textures/skyclouds.png");
-
-	skyboxTextures.frontWall = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/textures/skyclouds.png", "textures/skyclouds.png");
-
-	skyboxTextures.leftWall = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/textures/skyclouds.png", "textures/skyclouds.png");
-
-	skyboxTextures.rightWall = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/textures/skyclouds.png", "textures/skyclouds.png");
-
-	skyboxTextures.roof = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/textures/sky.png", "textures/sky.png");
-
-	textures.pyramid = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/textures/sandstone.jpg", "textures/sandstone.jpg");
+    skyboxTextures.backWall = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/textures/skyclouds.png", "textures/skyclouds.png");
+    skyboxTextures.frontWall = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/textures/skyclouds.png", "textures/skyclouds.png");
+    skyboxTextures.leftWall = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/textures/skyclouds.png", "textures/skyclouds.png");
+    skyboxTextures.rightWall = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/textures/skyclouds.png", "textures/skyclouds.png");
+    skyboxTextures.roof = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/textures/sky.png", "textures/sky.png");
+    textures.pyramid = loadTexture("c:/Users/buanh/Documents/VSCODE_SAVES/OpenGL/Projects/3D_WORLD_BUAN/textures/sandstone.jpg", "textures/sandstone.jpg");
     atexit(cleanup);
 }
 
+/**
+ * Initializes a collection of pyramid instances with random positions and scales.
+ * This function creates 1000 pyramid instances, each with a random position within the range of (-5000.0f, 5000.0f) for the x and z coordinates, and a random y position between 10.0f and 33.5f. The scale of each pyramid is also randomly set between 1.0f and 10.0f for each dimension. The created instances are then added to the `pyramidInstances` vector.
+ */
 void initPyramidInstances() {
     for (int i = 0; i < 1000; i++) {
         PyramidInstance instance;
-
-        // Set position
+        //sets the position of the pyramids within this scope
         instance.position.x = randomFloat(-5000.0f, 5000.0f);
-        instance.position.y = randomFloat(10.0f, 37.5f);
+        instance.position.y = randomFloat(10.0f, 33.5f);
         instance.position.z = randomFloat(-5000.0f, 5000.0f);
-
-        // Set scale uniformly
+        //sets the scale of the pyramids randomly 1 is the multiplier for 1x and 10 is for 10x scaling randomly form 1-10
         float randomScale = randomFloat(1.0f, 10.0f);
         instance.scale.x = randomScale;
         instance.scale.y = randomScale;
         instance.scale.z = randomScale;
-
         pyramidInstances.push_back(instance);
     }
 }
+/**
+ * Renders the pyramid geometry using the pre-generated vertex, texture, and normal data stored in vertex buffer objects (VBOs).
+ * This function sets up the OpenGL state for rendering the pyramids, including enabling texturing, lighting, and vertex/texture/normal arrays.
+ * It then iterates through the list of pyramid instances, translating and scaling each instance, and drawing the pyramid geometry.
+ * Finally, it disables the various OpenGL state settings to prepare for rendering other objects.
+ */
 void renderPyramid() {
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, textures.pyramid);
-
-    // Enable lighting for the pyramid
+    //enabling lighting default at 0 so it will be dependent on the sun
     glEnable(GL_LIGHTING);
     glEnable(GL_LIGHT2);
-
     glEnableClientState(GL_VERTEX_ARRAY);
     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-    glEnableClientState(GL_NORMAL_ARRAY);  // Enable normal array for lighting
+    glEnableClientState(GL_NORMAL_ARRAY);  //how light bounces off of this pyramids
 
     glBindBuffer(GL_ARRAY_BUFFER, pyramidVBOs[0]);
     glVertexPointer(3, GL_FLOAT, 0, 0);
-
     glBindBuffer(GL_ARRAY_BUFFER, pyramidVBOs[1]);
     glTexCoordPointer(2, GL_FLOAT, 0, 0);
-
     glBindBuffer(GL_ARRAY_BUFFER, pyramidVBOs[2]);
     glNormalPointer(GL_FLOAT, 0, 0);
 
@@ -445,7 +462,6 @@ void renderPyramid() {
         glScalef(instance.scale.x * scaling,
             instance.scale.y * scaling,
             instance.scale.z * scaling);
-
         glDrawArrays(GL_TRIANGLES, 0, 12);
         glDrawArrays(GL_QUADS, 12, 4);
         glPopMatrix();
@@ -458,9 +474,15 @@ void renderPyramid() {
     glDisable(GL_LIGHTING);
     glDisable(GL_LIGHT2);
 }
+/**
+ * Initializes the vertex buffer objects (VBOs) for the pyramid geometry.
+ * This function sets up the VBOs for the pyramid vertices, texture coordinates, and normals.
+ * The data for these VBOs is copied from the corresponding global arrays (pyramidVertices, pyramidTextureCoords, pyramidNormals).
+ * The VBOs are then bound to the appropriate GL_ARRAY_BUFFER targets for use in rendering the pyramids.
+ */
 void pyramidVBO() {
     glGenBuffers(3, pyramidVBOs);
-    // Pyramid vertex VBO
+    //pyramid vertex VBO
     glBindBuffer(GL_ARRAY_BUFFER, pyramidVBOs[0]);
     glBufferData(GL_ARRAY_BUFFER, sizeof(pyramidVertices), nullptr, GL_STATIC_DRAW);
     GLfloat* vertexPtr = (GLfloat*)glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
@@ -468,8 +490,7 @@ void pyramidVBO() {
         memcpy(vertexPtr, pyramidVertices, sizeof(pyramidVertices));
         glUnmapBuffer(GL_ARRAY_BUFFER);
     }
-
-    // Pyramid texture VBO
+    //pyramid texture VBO
     glBindBuffer(GL_ARRAY_BUFFER, pyramidVBOs[1]);
     glBufferData(GL_ARRAY_BUFFER, sizeof(pyramidTextureCoords), nullptr, GL_STATIC_DRAW);
     GLfloat* texPtr = (GLfloat*)glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
@@ -477,8 +498,7 @@ void pyramidVBO() {
         memcpy(texPtr, pyramidTextureCoords, sizeof(pyramidTextureCoords));
         glUnmapBuffer(GL_ARRAY_BUFFER);
     }
-
-    // Pyramid normals VBO
+    //pyramid normals VBO
     glBindBuffer(GL_ARRAY_BUFFER, pyramidVBOs[2]);
     glBufferData(GL_ARRAY_BUFFER, sizeof(pyramidNormals), nullptr, GL_STATIC_DRAW);
     GLfloat* normalPtr = (GLfloat*)glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
@@ -866,9 +886,6 @@ void renderSkyBox() {
 void initVBOs() {
     pyramidVBO();
     sunVBO();
-    //renderSkyBox();
-    //skyBoxVBO();
-
     // Unbind buffer
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindTexture(GL_TEXTURE_2D, 0);
@@ -999,6 +1016,11 @@ void mouseMovement(int x, int y) {
     if (pitch < -89.0f) pitch = -89.0f;
     updateCameraDirection();
 }
+/**
+ * Updates the camera's direction based on the current yaw and pitch angles.
+ * This function calculates the new look direction (lookX, lookY, lookZ) for the camera
+ * using the current yaw and pitch angles, which are updated based on mouse movement.
+ */
 void updateCameraDirection() {
     //for camera movement
     lookX = cos(yaw * M_PI / 180.0f) * cos(pitch * M_PI / 180.0f);
@@ -1164,6 +1186,16 @@ void renderPauseMenu() {
     glMatrixMode(GL_MODELVIEW);
     glPopMatrix();
 }
+/**
+ * Handles mouse wheel scrolling to adjust the scaling of the 3D scene.
+ * Increases the scaling when scrolling up, and decreases the scaling when scrolling down, within a range of 3.0 to 50.0.
+ * After adjusting the scaling, the display is updated to reflect the changes.
+ *
+ * button The mouse button that triggered the event (not used).
+ * dir The direction of the scroll (1 for up, -1 for down).
+ * x The x-coordinate of the mouse cursor (not used).
+ * y The y-coordinate of the mouse cursor (not used).
+ */
 void mouseWheel(int button, int dir, int x, int y) {
     if (dir > 0) {
         // Scroll up - increase scale
@@ -1252,6 +1284,18 @@ void renderText(float x, float y, const string& text) {
         glutBitmapCharacter(GLUT_BITMAP_HELVETICA_12, c);
     }
 }
+/**
+ * Displays the current 3D coordinates on the screen in the top-right corner.
+ *
+ * This function takes the current x, y, and z coordinates as input and renders them as text on the screen.
+ * The text is positioned in the top-right corner of the viewport, with a small padding from the edges.
+ * The function sets up an orthographic projection to ensure the text is rendered in 2D screen space,
+ * independent of the 3D camera position and orientation.
+ *
+ * The current x-coordinate.
+ * The current y-coordinate.
+ * The current z-coordinate.
+ */
 void displayCoordinates(float coordX, float coordY, float coordZ) {
     // Convert the coordinates to a string for display
     ostringstream oss;
@@ -1337,7 +1381,7 @@ void display() {
     gluLookAt(cameraX, cameraY, cameraZ, cameraX + lookX, cameraY + lookY, cameraZ + lookZ, 0.0f, 1.0f, 0.0f);  // Set camera position and orientation
     //render shapes
     renderPyramid();   //render pyramid
-    renderSun(100.0f, segments, angleCircle, -2.0f, 3007.5f, 5.0f); //size, num of segments, angle of the rotation, and x y z coordinates
+    renderSun(100.0f, segments, angleofSun, -2.0f, 3007.5f, 5.0f); //size, num of segments, angle of the rotation, and x y z coordinates
     renderSkyBox(); //skybox  // Render the complete cube map (floor, ceiling, and walls)
     //rendering hud elements
     renderPauseMenu(); // Render pause menu overlay if game is paused
@@ -1348,7 +1392,6 @@ void display() {
 
     if (!isPaused) {
         anglePyramid += 0.2f;
-        angleCube -= 0.15f;
-        angleCircle += 0.2f;
+        angleofSun += 0.2f;
     }
 }
